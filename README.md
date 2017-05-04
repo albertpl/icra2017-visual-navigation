@@ -29,7 +29,7 @@ Before running the code, please download the scene dumps using the following scr
 ```bash
 ./data/download_scene_dumps.sh
 ```
-We are currently releasing one scene from each of the four scene categories, *bathroom*, *bedroom*, *kitchen*, and *living room*. Please contact me for information about additional scenes.
+This script will download a dataset of four scenes, one from each scene category: *bathroom*, *bedroom*, *kitchen*, and *living room*. Additional scenes can be downloaded [here](http://stanford.edu/~yukez/icra2017.html).
 A ```keyboard_agent.py``` script is provided. This script allows you to load a scene dump and use the arrow keys to navigate a scene. To run the script, here is an example command:
 ```bash
 # make sure the scene dump is in the data folder, e.g., ./data/bedroom_04.h5
