@@ -57,6 +57,7 @@ class THORDiscreteEnvironment(object):
       # check if target is reachable
       for t_state in self.terminal_states:
         dist = self.shortest_path_distances[k][t_state]
+        dist = -1 if dist == 1000 else dist
         min_d = min(min_d, dist)
       # min_d = 0  if k is a terminal state
       # min_d = -1 if no terminal state is reachable from k
