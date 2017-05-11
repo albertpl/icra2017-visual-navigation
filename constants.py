@@ -25,7 +25,6 @@ SCREEN_HEIGHT = 84
 HISTORY_LENGTH = 4
 
 NUM_EVAL_EPISODES = 5 # number of episodes for evaluation
-MAX_STEPS_PER_E = 5e2 # maximum steps per episode
 
 TASK_TYPE = 'navigation' # no need to change
 # keys are scene names, and values are a list of location ids (navigation targets)

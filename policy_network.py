@@ -24,7 +24,7 @@ class PolicyNetwork(object):
         self.scores = dict()
         self.train_steps = dict()
         self.evals = dict()
-        self.lr = config.lr
+        self.summaries = dict()
         self.global_step = tf.Variable(0, dtype=tf.int32, trainable=False, name='global_step')
         tf.logging.debug('config=%s', self.config)
 
@@ -44,25 +44,31 @@ class PolicyNetwork(object):
                     # scene-specific key
                     key = self._get_key([network_scope, scene_scope])
                     with tf.variable_scope(scene_scope):
-                        # scene-specific adaptation layer
+                        # scene-specific adaptation layer, disable bn to make it easier for optimizer op dependency
                         x = self._fc(x, 512, name='fc3')
                         tf.logging.debug("%s-fc3: shape %s", key, x.get_shape())
                         # policy output layer
-                        self.scores[key] = self._fc(x, self.config.action_size, name='out', activation=False)
+                        logits = self._fc(x, self.config.action_size, name='logits', activation=False)
+                        self.scores[key] = tf.nn.softmax(logits=logits)
                         tf.logging.debug("%s-out: shape %s", key, self.scores[key].get_shape())
                         # policy (output)
                         with tf.name_scope('loss'):
-                            ce = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.scores[key], labels=self.y)
+                            ce = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=self.y)
                             data_loss = tf.reduce_mean(ce, name='loss')
                             self.losses[key] = data_loss  #  + _add_reg(self.config.reg)
-                            tf.summary.scalar("loss", self.losses[key])
-
-                        optimizer = tf.train.AdamOptimizer(learning_rate=self.lr)
-                        self.train_steps[key] = optimizer.minimize(self.losses[key], global_step=self.global_step)
-                        with tf.name_scope('eval'):
-                            labels = tf.argmax(self.scores[key], 1)
-                            self.evals[key] = tf.cast(tf.equal(labels, self.y), tf.float32)
-        self.summary = tf.summary.merge_all()
+                            self.summaries[key] = tf.summary.scalar("loss", self.losses[key])
+            optimizer = tf.train.AdamOptimizer(learning_rate=self.lr)
+            # batch normalization in tensorflow requires this extra dependency
+            # extra_update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+            # with tf.control_dependencies(extra_update_ops):
+            for scene_scope in scene_scopes:
+                # scene-specific key
+                key = self._get_key([network_scope, scene_scope])
+                self.train_steps[key] = optimizer.minimize(self.losses[key], global_step=self.global_step,
+                                                           name='train')
+                with tf.name_scope('eval'):
+                    labels = tf.argmax(self.scores[key], 1)
+                    self.evals[key] = tf.cast(tf.equal(labels, self.y), tf.float32)
 
     def run_policy(self, session, state, target, scopes):
         k = self._get_key(scopes[:2])
@@ -80,12 +86,12 @@ class PolicyNetwork(object):
         n_data = len(s)
         batch_size = self.config.batch_size
 
-        summary_op = self.summary if writer else tf.no_op()
+        summary_op = self.summaries[key] if writer else tf.no_op()
         extra_op = self.train_steps[key] if training_now else tf.no_op()
         ops = [self.losses[key], self.evals[key], summary_op, extra_op]
 
-        losses = []
-        correct = 0
+        total_loss = 0.0
+        total_correct = 0
         for i in range(int(math.ceil(n_data/ batch_size))):
             # generate indicies for the batch
             start_idx = (i * batch_size) % n_data
@@ -101,12 +107,12 @@ class PolicyNetwork(object):
             loss, corr, summary, _ = session.run(ops, feed_dict=feed_dict)
 
             # aggregate performance stats
-            losses.append(loss * actual_batch_size)
-            correct += np.sum(corr)
+            total_loss += loss * actual_batch_size
+            total_correct += np.sum(corr)
             if writer:
                 writer.add_summary(summary, global_step=self.get_global_step())
-        total_correct = correct / n_data
-        total_loss = np.sum(losses) / n_data
+        total_correct /= n_data
+        total_loss /= n_data
         return total_loss, total_correct
 
     def _get_key(self, scopes):
@@ -137,10 +143,10 @@ class PolicyNetwork(object):
             w = tf.get_variable('weight', (x1_size, out_dim), initializer=layers.variance_scaling_initializer())
             b = tf.get_variable('bias', (out_dim,), initializer=tf.constant_initializer())
             x1 = tf.matmul(x1, w) + b
-            x1 = layers.batch_norm(x1, center=True, scale=True, is_training=self.is_training)
+            # x1 = layers.batch_norm(x1, center=True, scale=True, is_training=self.is_training)
             x1 = self._relu(x1)
             x2 = tf.matmul(x2, w) + b
-            x2 = layers.batch_norm(x2, center=True, scale=True, is_training=self.is_training)
+            # x2 = layers.batch_norm(x2, center=True, scale=True, is_training=self.is_training)
             x2 = self._relu(x2)
             x = tf.concat(values=[x1, x2], axis=1)
         return x
@@ -151,7 +157,7 @@ class PolicyNetwork(object):
             b = tf.get_variable('bias', (out_dim,), initializer=tf.constant_initializer())
             x = tf.matmul(x, w) + b
             if activation:
-                x = layers.batch_norm(x, center=True, scale=True, is_training=self.is_training)
+                # x = layers.batch_norm(x, center=True, scale=True, is_training=self.is_training) if use_bn else x
                 x = self._relu(x)
         return x
 

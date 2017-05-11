@@ -53,13 +53,17 @@ def train_model(session, config, threads, logdir, weight_root):
         logging.info("initializing all variables")
         session.run(tf.global_variables_initializer())
     global_t = 0
-    steps_per_save = 1e+4
+    t0 = time.time()
     while global_t < config.max_global_time_step:
         for thread in threads:
             global_t += thread.process(session, global_t, summary_writer)
-            if saver and global_t % steps_per_save == (steps_per_save-1):
+            if saver and global_t % config.steps_per_save == (config.steps_per_save-1):
                 logging.info('Save checkpoint at timestamp %d' % global_t)
                 saver.save(session, weight_path)
+            # if global_t % 800 == 799:
+             #    thread.local_network.config.lr *= 0.5
+    duration = time.time() - t0
+    logging.info("global_t=%d and each step takes %0.2f s (%0.2f)" % (global_t, duration/global_t, duration))
     if saver:
         saver.save(session, weight_path)
     if summary_writer:
@@ -94,7 +98,8 @@ def train_models(configs):
 def train():
     config_dict = vars(args)
     for _ in range(args.max_attempt):
-        config_dict['lr'] = 10 ** np.random.uniform(-5, -3, size=1)[0]
+        # config_dict['lr'] = 10 ** np.random.uniform(-5, -3, size=1)[0]
+        config_dict['lr'] = np.random.uniform(3e-4, 4e-4)
         train_models([config_dict])
 
 
@@ -137,7 +142,7 @@ if __name__ == '__main__':
     parser.add_argument('-l', dest='log_level', default='info', help="logging level: {debug, info, error}")
     parser.add_argument('--max_attempt', dest='max_attempt', type=int, default=1,
                         help='search hyper parameters')
-    parser.add_argument('--logdir', dest='logdir', default='/tmp/logdir', help='logdir')
+    parser.add_argument('--logdir', dest='logdir', default='./logdir', help='logdir')
     parser.add_argument('--weight_root', dest='weight_root', default=None, help='weights')
     for k in [a for a in dir(Configuration()) if not isinstance(a, Callable) and not a.startswith("__")]:
         parser.add_argument('--'+k, dest=k)
