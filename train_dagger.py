@@ -59,13 +59,13 @@ class DaggerThread(object):
         # fail safe
         return len(values) - 1
 
-    def _record_score(self, writer, value_dict):
+    def add_summary(self, writer, value_dict):
         if writer is None or len(value_dict) == 0:
             return
         value = [tf.Summary.Value(tag=k, simple_value=v) for k,v in value_dict.items()]
         summary = tf.Summary(value=value)
         writer.add_summary(summary, global_step=self.local_network.get_global_step())
-        logging.info("writing summary %s" % (str(summary)))
+        logging.debug("writing summary %s" % (str(summary)))
 
     def train(self, session, writer):
         assert len(self.states) == len(self.actions), "data count of action and state mismatch"
@@ -81,7 +81,7 @@ class DaggerThread(object):
         scope = self.scene_scope + '/' + self.task_scope
         for epoch in range(self.config.max_epochs):
             train_loss, train_accuracy = self.local_network.run_epoch(session, self.scopes, s, t, a, True, writer)
-            logging.debug("%(scope)s:time_t=%(local_t)d loss=%(train_loss)f acc=%(train_accuracy)f" % locals())
+            logging.info("%(scope)s:time_t=%(local_t)d loss=%(train_loss)f acc=%(train_accuracy)f" % locals())
         return
 
     def process(self, sess, global_t, summary_writer):
@@ -93,10 +93,9 @@ class DaggerThread(object):
                 expert_action = action = self.expert.get_next_action()
             else:
                 expert_action = self.expert.get_next_action()
-                pi_ = self.local_network.run_policy(sess, self.env.s_t, self.env.target, self.scopes)
+                pi_ = self.local_network.run_policy(sess, self.env.s_t, self.env.s_target, self.scopes)
                 action = self.choose_action(pi_)
-            if not self.first_iteration:
-                logging.debug("action=%(action)d expert_action=%(expert_action)d" % locals())
+                logging.debug("action=%(action)d expert_action=%(expert_action)d pi_=%(pi_)s" % locals())
             self.states.insert(0, self.env.s_t)
             self.actions.insert(0, expert_action)
             self.env.step(action)
@@ -106,16 +105,15 @@ class DaggerThread(object):
             self.local_t += 1
             if terminal:
                 logging.info(
-                    "time %d | thread #%d | scene %s | target #%s expert:%s\n%s %s episode length = %d\n" % (
+                    "[episode end] time %d | thread #%d | scene %s | target #%s expert:%s episode length = %d\n" % (
                         global_t, self.thread_index, self.scene_scope, self.task_scope,
-                        "T" if self.first_iteration else "F", self.scene_scope,
-                        self.task_scope, self.episode_length))
+                        "T" if self.first_iteration else "F", self.episode_length))
                 summary_values = {
                     "episode_length_input": float(self.episode_length),
                 }
                 if not self.first_iteration:
                     # record agent's score only
-                    self._record_score(summary_writer, summary_values)
+                    self.add_summary(summary_writer, summary_values)
                 self.episode_length = 0
                 self.env.reset()
                 break
@@ -124,17 +122,23 @@ class DaggerThread(object):
         self.first_iteration = False
         return self.local_t - start_local_t
 
-    def evaluate(self, sess, n_episodes):
+    def evaluate(self, sess, n_episodes, expert_agent=False):
         ep_lengths = []
         ep_collisions = []
+        accuracies = []
         for i in range(n_episodes):
             self.env.reset()
             terminal = False
             step = 0
             n_collision = 0
             while not terminal:
-                pi_ = self.local_network.run_policy(sess, self.env.s_t, self.env.target, self.scopes)
-                action = self.choose_action_greedy(pi_)
+                if expert_agent:
+                    action = self.expert.get_next_action()
+                else:
+                    expert_action = self.expert.get_next_action()
+                    pi_ = self.local_network.run_policy(sess, self.env.s_t, self.env.s_target, self.scopes)
+                    action = self.choose_action(pi_)
+                    accuracies.append(1.0 if expert_action == action else 0.0)
                 self.env.step(action)
                 self.env.update()
                 terminal = True if step > self.config.max_steps_per_e else self.env.terminal
@@ -143,6 +147,6 @@ class DaggerThread(object):
             logging.debug("episode %(i)d ends with %(step)d steps" % locals())
             ep_lengths.append(step)
             ep_collisions.append(n_collision)
-        return ep_lengths, ep_collisions
+        return ep_lengths, ep_collisions, accuracies
 
 

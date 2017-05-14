@@ -1,6 +1,6 @@
 import argparse
-import logging
 import math
+import logging
 import numpy as np
 import os
 import tensorflow as tf
@@ -27,6 +27,22 @@ from policy_network import PolicyNetwork
 from train_dagger import DaggerThread
 
 
+def create_threads(config, model, network_scope, list_of_tasks):
+    scene_scopes = list_of_tasks.keys()
+    branches = [(scene, task) for scene in scene_scopes for task in list_of_tasks[scene]]
+    return [DaggerThread(config, model, i, network_scope=network_scope, scene_scope=scene_scope, task_scope=task)
+            for i, (scene_scope, task) in enumerate(branches)]
+
+
+def anneal_lr(lr_config, global_t):
+    """ heuristically update lr"""
+    lr_schedules = ((2e3, 0.5), (1e4, 0.5**2), (5e4, 0.5**3), (1e5, 0.5**4), (5e5, 0.5**5), (1e6, 0.5**6))
+    for step, rate in lr_schedules:
+        if global_t < step:
+            return lr_config * rate
+    return lr_config * lr_schedules[-1][1]
+
+
 def train_model(session, config, threads, logdir, weight_root):
     if logdir:
         if not os.path.exists(logdir):
@@ -49,19 +65,23 @@ def train_model(session, config, threads, logdir, weight_root):
         saver = weight_path = checkpoint = None
     if saver and checkpoint and checkpoint.model_checkpoint_path:
         saver.restore(session, checkpoint.model_checkpoint_path)
+        load_weights = True
     else:
         logging.info("initializing all variables")
         session.run(tf.global_variables_initializer())
+        load_weights = False
     global_t = 0
     t0 = time.time()
     while global_t < config.max_global_time_step:
         for thread in threads:
+            thread.first_iteration = not load_weights
             global_t += thread.process(session, global_t, summary_writer)
             if saver and global_t % config.steps_per_save == (config.steps_per_save-1):
                 logging.info('Save checkpoint at timestamp %d' % global_t)
                 saver.save(session, weight_path)
-            # if global_t % 800 == 799:
-             #    thread.local_network.config.lr *= 0.5
+            if saver and global_t % config.steps_per_eval == (config.steps_per_eval-1):
+                evaluate_model(session,config, thread.local_network, summary_writer)
+            thread.local_network.config.lr = anneal_lr(config.lr, global_t)
     duration = time.time() - t0
     logging.info("global_t=%d and each step takes %0.2f s (%0.2f)" % (global_t, duration/global_t, duration))
     if saver:
@@ -75,7 +95,6 @@ def train_models(configs):
     network_scope = TASK_TYPE
     list_of_tasks = TASK_LIST
     scene_scopes = list_of_tasks.keys()
-    branches = [(scene, task) for scene in scene_scopes for task in list_of_tasks[scene]]
     for config_dict in configs:
         config = Configuration(**config_dict)
         print("training with config=%s" % (str(config)))
@@ -86,11 +105,7 @@ def train_models(configs):
                               network_scope=network_scope,
                               scene_scopes=scene_scopes)
         sess_config = tf.ConfigProto(log_device_placement=False, allow_soft_placement=True)
-        threads = [DaggerThread(config, model, i,
-                                network_scope=network_scope,
-                                scene_scope=scene_scope,
-                                task_scope=task)
-                   for i, (scene_scope, task) in enumerate(branches)]
+        threads = create_threads(config, model, network_scope, list_of_tasks)
         with tf.Session(config=sess_config) as session:
             train_model(session, config, threads, config_dict['logdir'], config_dict['weight_root'])
 
@@ -103,13 +118,50 @@ def train():
         train_models([config_dict])
 
 
+def evaluate_model(session, config, model, summary_writer=None):
+    network_scope = TASK_TYPE
+    list_of_tasks = TASK_LIST
+    threads = create_threads(config, model, network_scope, list_of_tasks)
+
+    scene_stats = defaultdict(list)
+    expert_stats = defaultdict(list)
+    acc_stats = defaultdict(list)
+    for thread in threads:
+        scene = thread.scene_scope
+        task = thread.task_scope
+        lengths, collisions, accuracies = thread.evaluate(session, config.num_eval_episodes, expert_agent=False)
+        exp_lengths, exp_collisions, _ = thread.evaluate(session, config.num_eval_episodes, expert_agent=True)
+        logging.debug("Agent %s: mean_episode_length=%f/%f mean_episode_collision=%f/%f accuracies=%f" %
+                      (scene+'/'+task, float(np.mean(lengths)),
+                       float(np.mean(exp_lengths)),
+                       float(np.mean(collisions)),
+                       float(np.mean(exp_collisions)),
+                       float(np.mean(accuracies)) ))
+        scene_stats[scene] += lengths
+        expert_stats[scene] += exp_lengths
+        acc_stats[scene] += accuracies
+        if summary_writer:
+            summary_values = {
+                "stats/" + scene + "-steps": float(np.mean(scene_stats[scene])),
+                "stats/" + scene + "-accuracy": float(np.mean(acc_stats[scene])),
+            }
+            thread.add_summary(summary_writer, summary_values)
+    logging.info("Average_trajectory_length per scene (steps):")
+    for scene in scene_stats:
+        logging.info("%s: agent=%f (acc=%.2f) expert=%f" %
+                     (scene,
+                      float(np.mean(scene_stats[scene])),
+                      float(np.mean(acc_stats[scene])),
+                      float(np.mean(expert_stats[scene])),
+                      ))
+
+
 def evaluate():
     device = "/gpu:0" if USE_GPU else "/cpu:0"
-    weight_root = args.weight_root
     network_scope = TASK_TYPE
     list_of_tasks = TASK_LIST
     scene_scopes = list_of_tasks.keys()
-    scene_stats = defaultdict(list)
+    weight_root = args.weight_root
     config = Configuration(**vars(args))
     model = PolicyNetwork(config,
                           device=device,
@@ -122,19 +174,7 @@ def evaluate():
         checkpoint = tf.train.get_checkpoint_state(weight_root)
         assert saver and checkpoint and checkpoint.model_checkpoint_path, weight_path + " doesn't exist"
         saver.restore(session, checkpoint.model_checkpoint_path)
-        branches = [(scene, task) for scene in scene_scopes for task in list_of_tasks[scene]]
-        for i, (scene, task) in enumerate(branches):
-            thread = DaggerThread(config, model, i,
-                                  network_scope=network_scope,
-                                  scene_scope=scene,
-                                  task_scope=task)
-            lengths, collisions = thread.evaluate(session, NUM_EVAL_EPISODES)
-            logging.info("evaluating %s: mean_episode_length=%f mean_episode_collision=%f"
-                         % (scene+'/'+task, float(np.mean(lengths)), float(np.mean(collisions))))
-            scene_stats[scene] += lengths
-        logging.info("Average_trajectory_length per scene:")
-        for scene in scene_stats:
-            logging.info("%s: %f steps" % (scene, float(np.mean(scene_stats[scene]))))
+        evaluate_model(session, config, model)
 
 
 if __name__ == '__main__':

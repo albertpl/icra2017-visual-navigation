@@ -1,5 +1,5 @@
 import collections
-from constants import LOCAL_T_MAX , MAX_TIME_STEP
+from constants import LOCAL_T_MAX , MAX_TIME_STEP, NUM_EVAL_EPISODES
 
 class Configuration(object):
     """Holds model hyper-parameters and data information.
@@ -17,8 +17,10 @@ class Configuration(object):
     max_epochs = 1   # # of train per iteration
     max_global_time_step = MAX_TIME_STEP
     max_steps_per_e = 5e3  # maximum steps per episode
+    num_eval_episodes = NUM_EVAL_EPISODES
     reg = 0.04   # regularization for weight
-    steps_per_save = 1e+2
+    steps_per_save = 1e+3
+    steps_per_eval = 1e+2
 
     def __init__(self, **kwargs):
         for key in [a for a in dir(self) if not isinstance(a, collections.Callable) and not a.startswith("__")]:
