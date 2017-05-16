@@ -11,7 +11,7 @@ class Configuration(object):
     # dropout = 0.5
     early_stopping = 999
     local_t_max = LOCAL_T_MAX
-    lr = 1e-3
+    lr = 4.0e-4
     lr_decay_step = 1000 # decay by 0.9
     relu_leakiness = 0.01 # Leaky Relu
     max_epochs = 1   # # of train per iteration

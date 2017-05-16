@@ -36,7 +36,7 @@ def create_threads(config, model, network_scope, list_of_tasks):
 
 def anneal_lr(lr_config, global_t):
     """ heuristically update lr"""
-    lr_schedules = ((2e3, 0.5), (1e4, 0.5**2), (5e4, 0.5**3), (1e5, 0.5**4), (5e5, 0.5**5), (1e6, 0.5**6))
+    lr_schedules = ((2e3, 1.0), (1e4, 0.5), (5e4, 0.5**2), (1e5, 0.5**3), (5e5, 0.5**4), (1e6, 0.5**5))
     for step, rate in lr_schedules:
         if global_t < step:
             return lr_config * rate
@@ -72,16 +72,24 @@ def train_model(session, config, threads, logdir, weight_root):
         load_weights = False
     global_t = 0
     t0 = time.time()
+    lr_config = config.lr
+    iteration = 0
     while global_t < config.max_global_time_step:
         for thread in threads:
-            thread.first_iteration = not load_weights
+            if load_weights:
+                thread.first_iteration = False
             global_t += thread.process(session, global_t, summary_writer)
-            if saver and global_t % config.steps_per_save == (config.steps_per_save-1):
+            iteration += 1
+            if saver and iteration % config.steps_per_save == (config.steps_per_save-1):
                 logging.info('Save checkpoint at timestamp %d' % global_t)
                 saver.save(session, weight_path)
-            if saver and global_t % config.steps_per_eval == (config.steps_per_eval-1):
-                evaluate_model(session,config, thread.local_network, summary_writer)
-            thread.local_network.config.lr = anneal_lr(config.lr, global_t)
+                checkpoint = tf.train.get_checkpoint_state(weight_root)
+                assert checkpoint and checkpoint.model_checkpoint_path
+                saver.restore(session, checkpoint.model_checkpoint_path)
+            if iteration % config.steps_per_eval == (config.steps_per_eval-1):
+                evaluate_model(session, config, thread.local_network, summary_writer)
+            thread.local_network.config.lr = anneal_lr(lr_config, global_t)
+            logging.debug("lr=%f" % thread.local_network.config.lr)
     duration = time.time() - t0
     logging.info("global_t=%d and each step takes %0.2f s (%0.2f)" % (global_t, duration/global_t, duration))
     if saver:
@@ -99,7 +107,6 @@ def train_models(configs):
         config = Configuration(**config_dict)
         print("training with config=%s" % (str(config)))
         # build the model graph
-        tf.reset_default_graph()
         model = PolicyNetwork(config,
                               device=device,
                               network_scope=network_scope,
@@ -108,9 +115,15 @@ def train_models(configs):
         threads = create_threads(config, model, network_scope, list_of_tasks)
         with tf.Session(config=sess_config) as session:
             train_model(session, config, threads, config_dict['logdir'], config_dict['weight_root'])
+        tf.reset_default_graph()
 
 
 def train():
+    config_dict = vars(args)
+    train_models([config_dict])
+
+
+def search():
     config_dict = vars(args)
     for _ in range(args.max_attempt):
         # config_dict['lr'] = 10 ** np.random.uniform(-5, -3, size=1)[0]
@@ -163,6 +176,7 @@ def evaluate():
     scene_scopes = list_of_tasks.keys()
     weight_root = args.weight_root
     config = Configuration(**vars(args))
+    print("evaluating with config=%s" % (str(config)))
     model = PolicyNetwork(config,
                           device=device,
                           network_scope=network_scope,
@@ -194,6 +208,10 @@ if __name__ == '__main__':
     # eval
     parser_eval = subparser.add_parser('eval', help='evaluate')
     parser_eval.set_defaults(func=evaluate)
+
+    # search
+    parser_train = subparser.add_parser('search', help='search hyper parameters')
+    parser_train.set_defaults(func=search)
 
     args = parser.parse_args()
     logging.basicConfig(level=getattr(logging, args.log_level.upper()), format='%(asctime)s %(levelname)s %(message)s')

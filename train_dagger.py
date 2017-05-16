@@ -81,7 +81,7 @@ class DaggerThread(object):
         scope = self.scene_scope + '/' + self.task_scope
         for epoch in range(self.config.max_epochs):
             train_loss, train_accuracy = self.local_network.run_epoch(session, self.scopes, s, t, a, True, writer)
-            logging.info("%(scope)s:time_t=%(local_t)d loss=%(train_loss)f acc=%(train_accuracy)f" % locals())
+            logging.info("%(scope)s:t=%(local_t)d loss=%(train_loss)f acc=%(train_accuracy)f" % locals())
         return
 
     def process(self, sess, global_t, summary_writer):

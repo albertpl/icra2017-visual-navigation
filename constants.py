@@ -14,8 +14,7 @@ ACTION_SIZE = 4 # action size
 INITIAL_ALPHA_LOG_RATE = 0.4226 # log_uniform interpolate rate for learning rate (around 7 * 10^-4)
 GAMMA = 0.99 # discount factor for rewards
 ENTROPY_BETA = 0.01 # entropy regurarlization constant
-# MAX_TIME_STEP = 10.0 * 10**6 # 10 million frames
-MAX_TIME_STEP = 1e+1 # 10 million frames
+MAX_TIME_STEP = 10.0 * 10**6 # 10 million frames
 GRAD_NORM_CLIP = 40.0 # gradient norm clipping
 USE_GPU = True # To use GPU, set True
 VERBOSE = True
@@ -24,7 +23,7 @@ SCREEN_WIDTH = 84
 SCREEN_HEIGHT = 84
 HISTORY_LENGTH = 4
 
-NUM_EVAL_EPISODES = 5 # number of episodes for evaluation
+NUM_EVAL_EPISODES = 100 # number of episodes for evaluation
 
 TASK_TYPE = 'navigation' # no need to change
 # keys are scene names, and values are a list of location ids (navigation targets)
