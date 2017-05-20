@@ -1,5 +1,4 @@
 import argparse
-import math
 import logging
 import numpy as np
 import os
@@ -7,20 +6,9 @@ import tensorflow as tf
 import time
 from collections import defaultdict, Callable
 
-from constants import ACTION_SIZE
-from constants import PARALLEL_SIZE
-from constants import INITIAL_ALPHA_LOW
-from constants import INITIAL_ALPHA_HIGH
-from constants import INITIAL_ALPHA_LOG_RATE
-from constants import CHECKPOINT_DIR
-from constants import LOG_FILE
-from constants import RMSP_EPSILON
-from constants import RMSP_ALPHA
-from constants import GRAD_NORM_CLIP
 from constants import USE_GPU
 from constants import TASK_TYPE
 from constants import TASK_LIST
-from constants import NUM_EVAL_EPISODES
 
 from config import Configuration
 from policy_network import PolicyNetwork
@@ -43,7 +31,7 @@ def anneal_lr(lr_config, global_t):
     return lr_config * lr_schedules[-1][1]
 
 
-def train_model(session, config, threads, logdir, weight_root):
+def train_model(model, session, config, threads, logdir, weight_root):
     if logdir:
         if not os.path.exists(logdir):
             os.makedirs(logdir)
@@ -71,7 +59,7 @@ def train_model(session, config, threads, logdir, weight_root):
         session.run(tf.global_variables_initializer())
         load_weights = False
     global_t = 0
-    t0 = time.time()
+    train_start = time.time()
     lr_config = config.lr
     iteration = 0
     while global_t < config.max_global_time_step:
@@ -83,15 +71,14 @@ def train_model(session, config, threads, logdir, weight_root):
             if saver and iteration % config.steps_per_save == (config.steps_per_save-1):
                 logging.info('Save checkpoint at timestamp %d' % global_t)
                 saver.save(session, weight_path)
-                checkpoint = tf.train.get_checkpoint_state(weight_root)
-                assert checkpoint and checkpoint.model_checkpoint_path
-                saver.restore(session, checkpoint.model_checkpoint_path)
             if iteration % config.steps_per_eval == (config.steps_per_eval-1):
                 evaluate_model(session, config, thread.local_network, summary_writer)
             thread.local_network.config.lr = anneal_lr(lr_config, global_t)
             logging.debug("lr=%f" % thread.local_network.config.lr)
-    duration = time.time() - t0
-    logging.info("global_t=%d and each step takes %0.2f s (%0.2f)" % (global_t, duration/global_t, duration))
+    train_steps = model.get_global_step()
+    duration = time.time() - train_start
+    logging.info("total_time_steps=%d train_steps=%d takes %0.2f s (%0.2f)"
+                 % (global_t, train_steps, duration/train_steps, duration))
     if saver:
         saver.save(session, weight_path)
     if summary_writer:
@@ -114,13 +101,13 @@ def train_models(configs):
         sess_config = tf.ConfigProto(log_device_placement=False, allow_soft_placement=True)
         threads = create_threads(config, model, network_scope, list_of_tasks)
         with tf.Session(config=sess_config) as session:
-            train_model(session, config, threads, config_dict['logdir'], config_dict['weight_root'])
+            train_model(model, session, config, threads, config_dict['logdir'], config_dict['weight_root'])
         tf.reset_default_graph()
 
 
 def train():
     config_dict = vars(args)
-    train_models([config_dict])
+    train_models([config_dict]*3)
 
 
 def search():
@@ -142,6 +129,7 @@ def evaluate_model(session, config, model, summary_writer=None):
     for thread in threads:
         scene = thread.scene_scope
         task = thread.task_scope
+        logging.debug("evaluating " + scene + "/" + task)
         lengths, collisions, accuracies = thread.evaluate(session, config.num_eval_episodes, expert_agent=False)
         exp_lengths, exp_collisions, _ = thread.evaluate(session, config.num_eval_episodes, expert_agent=True)
         logging.debug("Agent %s: mean_episode_length=%f/%f mean_episode_collision=%f/%f accuracies=%f" %
@@ -215,8 +203,10 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     logging.basicConfig(level=getattr(logging, args.log_level.upper()), format='%(asctime)s %(levelname)s %(message)s')
+    t0 = time.time()
     if args.command:
         args.func()
+        logging.info("%s takes %f s" % (args.command, time.time()-t0))
     else:
         parser.print_help()
 

@@ -35,38 +35,39 @@ class PolicyNetwork(object):
             self.is_training = tf.placeholder(tf.bool, name='is_training')
             self.lr = tf.placeholder(tf.float32, [], name='lr')
 
-            with tf.variable_scope(network_scope):
-                x = self._siamese(self.s, self.t, 512, name='fc1')
-                tf.logging.debug("fc1: shape %s", x.get_shape())
-                x = self._fc(x, 512, name='fc2')   # shared fusion layer
-                tf.logging.debug("fc2: shape %s", x.get_shape())
-                for scene_scope in scene_scopes:
-                    # scene-specific key
-                    key = self._get_key([network_scope, scene_scope])
-                    with tf.variable_scope(scene_scope):
-                        # scene-specific adaptation layer, disable bn to make it easier for optimizer op dependency
-                        x = self._fc(x, 512, name='fc3')
-                        tf.logging.debug("%s-fc3: shape %s", key, x.get_shape())
-                        # policy output layer
-                        logits = self._fc(x, self.config.action_size, name='logits', activation=False)
-                        self.scores[key] = tf.nn.softmax(logits=logits)
-                        tf.logging.debug("%s-out: shape %s", key, self.scores[key].get_shape())
-                        # policy (output)
-                        with tf.name_scope('loss'):
-                            ce = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=self.y)
-                            data_loss = tf.reduce_mean(ce, name='loss')
-                            self.losses[key] = data_loss  #  + _add_reg(self.config.reg)
-                            self.summaries[key] = tf.summary.scalar("loss", self.losses[key])
-            optimizer = tf.train.AdamOptimizer(learning_rate=self.lr)
-            # batch normalization in tensorflow requires this extra dependency
-            # extra_update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-            # with tf.control_dependencies(extra_update_ops):
+            fc1_out = self._siamese(self.s, self.t, 512, name='fc1')
+            tf.logging.debug("fc1: shape %s", fc1_out.get_shape())
+            fc2_out = self._fc(fc1_out, 512, name='fc2')   # shared fusion layer
+            tf.logging.debug("fc2: shape %s", fc2_out.get_shape())
+            shared_variables = tf.trainable_variables()
+            tf.logging.debug('shared variables %s ', shared_variables)
             for scene_scope in scene_scopes:
                 # scene-specific key
                 key = self._get_key([network_scope, scene_scope])
-                self.train_steps[key] = optimizer.minimize(self.losses[key], global_step=self.global_step,
-                                                           name='train')
-                with tf.name_scope('eval'):
+                with tf.variable_scope(scene_scope) as scope:
+                    # scene-specific adaptation layer, disable bn to make it easier for optimizer op dependency
+                    x = self._fc(fc2_out, 512, name='fc3')
+                    tf.logging.debug("%s-fc3: shape %s", key, x.get_shape())
+                    # policy output layer
+                    logits = self._fc(x, self.config.action_size, name='logits', activation=False)
+                    self.scores[key] = tf.nn.softmax(logits=logits)
+                    tf.logging.debug("%s-out: shape %s", key, self.scores[key].get_shape())
+                    scene_variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=scene_scope)
+                    tf.logging.debug('scene %s variables %s ', scene_scope, scene_variables)
+                with tf.name_scope('loss/' + scene_scope):
+                    ce = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=self.y)
+                    data_loss = tf.reduce_mean(ce, name='loss')
+                    self.losses[key] = data_loss  #  + _add_reg(self.config.reg)
+                    self.summaries[key] = tf.summary.scalar("loss", self.losses[key])
+                    # batch normalization in tensorflow requires this extra dependency
+                    # extra_update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+                    # with tf.control_dependencies(extra_update_ops):
+                with tf.name_scope('optimizer/' + scene_scope):
+                    optimizer = tf.train.AdamOptimizer(learning_rate=self.lr, name='adam')
+                    self.train_steps[key] = optimizer.minimize(self.losses[key], global_step=self.global_step,
+                                                               name='train',
+                                                               var_list=shared_variables + scene_variables)
+                with tf.name_scope('eval/' + scene_scope):
                     labels = tf.argmax(self.scores[key], 1)
                     self.evals[key] = tf.cast(tf.equal(labels, self.y), tf.float32)
 
@@ -92,7 +93,8 @@ class PolicyNetwork(object):
 
         total_loss = 0.0
         total_correct = 0
-        for i in range(int(math.ceil(n_data/ batch_size))):
+        train_steps = int(math.ceil(n_data / batch_size))
+        for i in range(train_steps):
             # generate indicies for the batch
             start_idx = (i * batch_size) % n_data
             end_idx = min(start_idx+batch_size, n_data)
@@ -137,9 +139,9 @@ class PolicyNetwork(object):
         x1_size = np.prod(x1.get_shape().as_list()[1:])
         x2_size = np.prod(x2.get_shape().as_list()[1:])
         assert x1_size == x2_size
-        x1 = tf.reshape(x1, [-1, x1_size])
-        x2 = tf.reshape(x2, [-1, x1_size])
         with tf.variable_scope(name):
+            x1 = tf.reshape(x1, [-1, x1_size], name='x1')
+            x2 = tf.reshape(x2, [-1, x1_size], name='x2')
             w = tf.get_variable('weight', (x1_size, out_dim), initializer=layers.variance_scaling_initializer())
             b = tf.get_variable('bias', (out_dim,), initializer=tf.constant_initializer())
             x1 = tf.matmul(x1, w) + b
