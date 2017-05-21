@@ -7,12 +7,13 @@ class Configuration(object):
     # beta1 = 0.9  # Adam m_t <- beta1 * m_{t-1} + (1 - beta1) * g
     # beta2 = 0.999  # Adam v_t <- beta2 * v_{t-1} + (1 - beta2) * g * g
     action_size = 4
-    batch_size = 32
+    batch_size = 128
     # dropout = 0.5
     early_stopping = 999
     local_t_max = LOCAL_T_MAX
     lr = 4.0e-4
     lr_decay_step = 1000 # decay by 0.9
+    lsr_epsilon = 0.1
     relu_leakiness = 0.01 # Leaky Relu
     max_epochs = 1   # # of train per iteration
     max_global_time_step = MAX_TIME_STEP

@@ -31,7 +31,7 @@ class PolicyNetwork(object):
         with tf.device(self._device):
             self.s = tf.placeholder(tf.float32, [None, 2048, 4], name='observation')  # state (input) 4 frames of Res50 code
             self.t = tf.placeholder(tf.float32, [None, 2048, 4], name='target')  # target (input) 4 frames of Res50 code
-            self.y = tf.placeholder(tf.int64, [None], name='action')  # label
+            self.y = tf.placeholder(tf.float32, [None, self.config.action_size], name='action')  # label
             self.is_training = tf.placeholder(tf.bool, name='is_training')
             self.lr = tf.placeholder(tf.float32, [], name='lr')
 
@@ -55,7 +55,7 @@ class PolicyNetwork(object):
                     scene_variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=scene_scope)
                     tf.logging.debug('scene %s variables %s ', scene_scope, scene_variables)
                 with tf.name_scope('loss/' + scene_scope):
-                    ce = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=self.y)
+                    ce = tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=self.y)
                     data_loss = tf.reduce_mean(ce, name='loss')
                     self.losses[key] = data_loss  #  + _add_reg(self.config.reg)
                     self.summaries[key] = tf.summary.scalar("loss", self.losses[key])
@@ -69,7 +69,8 @@ class PolicyNetwork(object):
                                                                var_list=shared_variables + scene_variables)
                 with tf.name_scope('eval/' + scene_scope):
                     labels = tf.argmax(self.scores[key], 1)
-                    self.evals[key] = tf.cast(tf.equal(labels, self.y), tf.float32)
+                    ground_truth_labels = tf.argmax(self.y, 1)
+                    self.evals[key] = tf.cast(tf.equal(labels, ground_truth_labels), tf.float32)
 
     def run_policy(self, session, state, target, scopes):
         k = self._get_key(scopes[:2])

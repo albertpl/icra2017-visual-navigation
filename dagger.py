@@ -107,7 +107,7 @@ def train_models(configs):
 
 def train():
     config_dict = vars(args)
-    train_models([config_dict]*3)
+    train_models([config_dict]*args.max_attempt)
 
 
 def search():

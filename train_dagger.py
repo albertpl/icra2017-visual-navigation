@@ -42,6 +42,12 @@ class DaggerThread(object):
         self.actions = []
         self.targets = []
 
+    def choose_action_label_smooth(self, expected_action, epsilon):
+        """ P(k) =  (1-epsilon) * P_e +  e * 1/N """
+        pi_values = [epsilon/float(self.config.action_size)] * self.config.action_size
+        pi_values[expected_action] += 1-epsilon
+        return pi_values
+
     def choose_action_greedy(self, pi_values):
         # greedy algorithm since this is supervised learning
         return np.argmax(pi_values, axis=0)
@@ -74,9 +80,10 @@ class DaggerThread(object):
         n_total = len(s)
         assert n_total > 0, "null dataset"
         t = [self.env.s_target] * n_total
-        data = list(zip(s, a))
-        np.random.shuffle(data)
-        s, a = zip(*data)
+        if n_total > self.config.batch_size:
+            data = list(zip(s, a))
+            np.random.shuffle(data)
+            s, a = zip(*data)
         local_t = self.local_t
         scope = self.scene_scope + '/' + self.task_scope
         for epoch in range(self.config.max_epochs):
@@ -90,17 +97,21 @@ class DaggerThread(object):
     def process(self, sess, global_t, summary_writer):
         start_local_t = self.local_t
         # draw experience with current policy or expert policy
+        terminal = False
         for i in range(self.config.local_t_max):
             if self.first_iteration:
                 # use expert policy before any training
                 expert_action = action = self.expert.get_next_action()
+                expert_lsr_pi = self.choose_action_label_smooth(expert_action, self.config.lsr_epsilon)
             else:
                 expert_action = self.expert.get_next_action()
+                expert_lsr_pi = self.choose_action_label_smooth(expert_action, self.config.lsr_epsilon)
                 pi_ = self.local_network.run_policy(sess, self.env.s_t, self.env.s_target, self.scopes)
                 action = self.choose_action(pi_)
-                logging.debug("action=%(action)d expert_action=%(expert_action)d pi_=%(pi_)s" % locals())
+                logging.debug("action=%(action)d expert_action=%(expert_action)d "
+                              "expert_lsr_pi=%(expert_lsr_pi)s pi_=%(pi_)s" % locals())
             self.states.insert(0, self.env.s_t)
-            self.actions.insert(0, expert_action)
+            self.actions.insert(0, expert_lsr_pi)
             self.env.step(action)
             self.env.update()
             terminal = True if self.episode_length > self.config.max_steps_per_e else self.env.terminal
@@ -142,9 +153,13 @@ class DaggerThread(object):
                     pi_ = self.local_network.run_policy(sess, self.env.s_t, self.env.s_target, self.scopes)
                     action = self.choose_action(pi_)
                     accuracies.append(1.0 if expert_action == action else 0.0)
+                    logging.debug("action=%(action)d expert_action=%(expert_action)d pi_=%(pi_)s" % locals())
                 self.env.step(action)
                 self.env.update()
-                terminal = True if step > self.config.max_steps_per_e else self.env.terminal
+                terminal = self.env.terminal
+                if step > self.config.max_steps_per_e:
+                    terminal = True
+                    logging.debug("episode %(i)d hits max steps" % locals())
                 n_collision += int(self.env.collided)
                 step += 1
             logging.debug("episode %(i)d ends with %(step)d steps" % locals())
