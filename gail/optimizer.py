@@ -11,9 +11,11 @@ import sys
 from scene_loader import THORDiscreteEnvironment as Environment
 from policy_network import PolicyNetwork
 from expert import Expert
+from config import Configuration
+from discriminator import  Discriminator
+from generator import  Generator
 
-
-class DaggerThread(object):
+class GailThread(object):
     def __init__(self,
                  config,
                  global_network,
@@ -26,7 +28,7 @@ class DaggerThread(object):
         self.network_scope = network_scope
         self.scene_scope = scene_scope
         self.task_scope = task_scope
-        self.scopes = [network_scope, scene_scope, task_scope]
+        self.scopes = (network_scope, scene_scope, task_scope)
         self.local_network = global_network
         self.env = Environment({
                 'scene_name': self.scene_scope,
@@ -68,7 +70,7 @@ class DaggerThread(object):
     def add_summary(self, writer, value_dict):
         if writer is None or len(value_dict) == 0:
             return
-        value = [tf.Summary.Value(tag=k, simple_value=v) for k,v in value_dict.items()]
+        value = [tf.Summary.Value(tag=k, simple_value=v) for k, v in value_dict.items()]
         summary = tf.Summary(value=value)
         writer.add_summary(summary, global_step=self.local_network.get_global_step())
         logging.debug("writing summary %s" % (str(summary)))
@@ -96,7 +98,7 @@ class DaggerThread(object):
 
     def process(self, sess, global_t, summary_writer):
         start_local_t = self.local_t
-        # draw experience with current policy or expert policy
+        # draw experience with current policy and expert policy
         terminal = False
         for i in range(self.config.local_t_max):
             if self.first_iteration:
@@ -168,3 +170,36 @@ class DaggerThread(object):
         return ep_lengths, ep_collisions, accuracies
 
 
+def test_model():
+    config = Configuration()
+    network_scope = 'network_scope'
+    scene_scopes = ('scene1', 'scene2', 'scene3', 'scene4')
+    train_logdir = 'logdir'
+    discriminator = Discriminator(config, network_scope=network_scope, scene_scopes=scene_scopes)
+    sess_config = tf.ConfigProto(log_device_placement=False,
+                                 allow_soft_placement=True)
+    batch_size = config.batch_size
+    a_e, a_a_op = {}, {}
+    for scene_scope in scene_scopes:
+        key = rl.get_key([network_scope, scene_scope])
+        a_e[key] = np.random.randint(0, high=config.action_size, size=(batch_size,))
+        a_a_op[key] = tf.constant(np.random.randint(0, high=config.action_size, size=(batch_size,)), dtype=tf.int32)
+    model.build_graph(a_a_op)
+
+    s_a = np.random.rand(batch_size, 2048, 4)
+    t_a = np.random.rand(batch_size, 2048, 4)
+    s_e = np.random.rand(batch_size, 2048, 4)
+    t_e = np.random.rand(batch_size, 2048, 4)
+    max_iter = 100
+    with tf.Session(config=sess_config) as session:
+        summary_writer = tf.summary.FileWriter(train_logdir, session.graph)
+        session.run(tf.global_variables_initializer())
+        for i in range(max_iter):
+            scope = (network_scope, 'scene2', 'task1')
+            loss = model.step(session, scope, s_a, t_a, s_e, t_e, a_e, writer=summary_writer)
+            rewards = float(np.mean(model.run_reward(session, scope, s_a, t_a)))
+            print("%(i)d loss=%(loss)f rewards=%(rewards)f" % locals())
+    summary_writer.close()
+
+if __name__ == '__main__':
+    test_model()
