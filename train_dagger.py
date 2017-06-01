@@ -9,7 +9,6 @@ import time
 import sys
 
 from scene_loader import THORDiscreteEnvironment as Environment
-from policy_network import PolicyNetwork
 from expert import Expert
 
 
