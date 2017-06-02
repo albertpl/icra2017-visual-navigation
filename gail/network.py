@@ -69,8 +69,7 @@ class Generator(object):
                     if key not in self.train_vars:
                         self.train_vars[key] = scene_variables
 
-    def run_policy(self, session, state, target, scope):
-        key = rl.get_key(scope[:2])
+    def run_policy(self, session, state, target, key):
         a, a_dist = session.run([self.actions[key], self.actions_dists[key]], feed_dict={
             self.s: state,
             self.t: target,
@@ -100,18 +99,14 @@ class Network(object):
         tf.logging.debug('config=%s', self.config)
 
         # connect to discriminator
-        discriminator.build_graph(self.g.s, self.g.t, self.g.actions)
+        discriminator.build_graph(self.g.s, self.g.t)
 
     def get_global_step(self):
         return self.global_step.eval()
 
-    def step_d(self, session, scopes, s_a, t_a, s_e, t_e, a_e, writer=None):
-        assert len(s_a) == len(t_a)
-        assert len(s_e) == len(t_e)
-        assert isinstance(a_e, dict)
-        for k, v in a_e.items():
-            assert len(v) == len(s_e)
-        key = rl.get_key(scopes[:2])
+    def step_d(self, session, key, s_a, t_a, a_a, s_e, t_e, a_e, writer=None):
+        assert len(s_a) == len(t_a) == len(a_a)
+        assert len(s_e) == len(t_e) == len(a_e)
         n_data_a = len(s_a)
         n_data_e = len(s_e)
         batch_size = self.config.batch_size
@@ -125,7 +120,7 @@ class Network(object):
             # generate indicies for the batch
             start_idx_a = (i * batch_size) % n_data_a
             end_idx_a = min(start_idx_a+batch_size, n_data_a)
-            actual_batch_size = end_idx_a-start_idx_a
+            actual_size = end_idx_a-start_idx_a
             start_idx_e = (i * batch_size) % n_data_e
             end_idx_e = min(start_idx_e+batch_size, n_data_e)
             feed_dict = {
@@ -133,33 +128,47 @@ class Network(object):
                 self.g.t: t_a[start_idx_a:end_idx_a],
                 self.d.s_e: s_e[start_idx_e:end_idx_e],
                 self.d.t_e: t_e[start_idx_e:end_idx_e],
-                self.d.a_e[key]: a_e[key][start_idx_e:end_idx_e],
+                self.d.a_e[key]: a_e[start_idx_e:end_idx_e],
+                self.d.a_a[key]: a_a[start_idx_e:end_idx_e],
                 self.g.lr: self.config.lr,
                 self.g.is_training: True,
                 self.d.lr: self.config.lr,
                 self.d.is_training: True,
+                self.d.n: actual_size,
             }
             # get batch size
             loss, _, summary = session.run(ops, feed_dict=feed_dict)
 
             # aggregate performance stats
-            total_loss += loss * actual_batch_size
+            total_loss += loss * actual_size
             if writer:
                 logging.info("writing summary")
                 writer.add_summary(summary, global_step=self.get_global_step())
         total_loss /= n_data_a
         return total_loss
 
-    def run_reward(self, session, scopes, s_a, t_a):
-        assert len(s_a) == len(t_a)
-        key = rl.get_key(scopes[:2])
-        feed_dict = {
-            self.g.s: s_a,
-            self.g.t: t_a,
-            self.g.lr: self.config.lr,
-            self.g.is_training: False,
-        }
-        rewards = session.run([self.d.rewards[key]], feed_dict=feed_dict)[0]
+    def run_reward(self, session, key, s_a, t_a, a_a):
+        assert len(s_a) == len(t_a) == len(a_a)
+        batch_size = self.config.batch_size
+        n_data = len(s_a)
+        n_steps = int(math.ceil(n_data / batch_size))
+        rewards = []
+        for i in range(n_steps):
+            # generate indicies for the batch
+            start_idx = i * batch_size
+            end_idx = min(start_idx+batch_size, n_data)
+            actual_size = end_idx - start_idx
+            feed_dict = {
+                self.g.s: s_a[start_idx:end_idx],
+                self.g.t: t_a[start_idx:end_idx],
+                self.d.a_a[key]: a_a[start_idx:end_idx],
+                self.d.n: actual_size,
+                self.g.lr: self.config.lr,
+                self.g.is_training: False,
+            }
+            r = session.run([self.d.rewards[key]], feed_dict=feed_dict)[0]
+            rewards.append(r)
+        rewards = np.concatenate(rewards, axis=0)
         return rewards
 
 
@@ -173,26 +182,27 @@ def test_model():
     model = Network(config, generator, discriminator, network_scope=network_scope, scene_scopes=scene_scopes)
 
     batch_size = config.batch_size
-    a_e = {}
+    a_e, a_a = {}, {}
     for scene_scope in scene_scopes:
         key = rl.get_key([network_scope, scene_scope])
-        a_e[key] = np.random.randint(0, high=config.action_size, size=(batch_size,))
-    s_a = np.random.rand(batch_size, 2048, 4)
-    t_a = np.random.rand(batch_size, 2048, 4)
-    s_e = np.random.rand(batch_size, 2048, 4)
-    t_e = np.random.rand(batch_size, 2048, 4)
+        a_e[key] = np.random.randint(0, high=config.action_size, size=(batch_size/2,))
+        a_a[key] = np.random.randint(0, high=config.action_size, size=(batch_size/2,))
+    s_a = np.random.rand(batch_size/2, 2048, 4)
+    t_a = np.random.rand(batch_size/2, 2048, 4)
+    s_e = np.random.rand(batch_size/2, 2048, 4)
+    t_e = np.random.rand(batch_size/2, 2048, 4)
     max_iter = 100
-    scope = (network_scope, 'scene2', 'task1')
+    key = rl.get_key([network_scope, 'scene2'])
     sess_config = tf.ConfigProto(log_device_placement=False,
                                  allow_soft_placement=True)
     with tf.Session(config=sess_config) as session:
         summary_writer = tf.summary.FileWriter(train_logdir, session.graph)
         session.run(tf.global_variables_initializer())
         for i in range(max_iter):
-            loss = model.step_d(session, scope, s_a, t_a, s_e, t_e, a_e, writer=summary_writer)
-            rewards = float(np.mean(model.run_reward(session, scope, s_a, t_a)))
+            loss = model.step_d(session, key, s_a, t_a, a_a[key], s_e, t_e, a_e[key], writer=summary_writer)
+            rewards = float(np.mean(model.run_reward(session, key, s_a, t_a, a_a[key])))
             print("%(i)d loss=%(loss)f rewards=%(rewards)f" % locals())
-        a, a_dist = model.g.run_policy(session, s_a, t_a, scope)
+        a, a_dist = model.g.run_policy(session, s_a, t_a, key)
         print(a_dist[0])
     summary_writer.close()
 

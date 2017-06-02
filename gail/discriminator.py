@@ -20,13 +20,14 @@ class Discriminator(object):
         self.logits, self.rewards, self.losses = {}, {}, {}
         self.train_vars, self.train_steps, self.summaries = {}, {}, {}
         self.s_e, self.t_e = None, None
-        self.s_a, self.t_a, self.a_a = None, None, None
-        self.a_e = {}
+        self.s_a, self.t_a = None, None
+        self.a_e, self.a_a = {}, {}
+        self.n = None
 
     def get_global_step(self):
         return self.global_step.eval()
 
-    def create(self, s, t, actions, is_expert=False):
+    def create(self, s, t, actions):
         """ score is probability (s,a) come from expert, i.e. expert is labeled as zero
         Also log(p) is reward/cost function c(s,a)
         """
@@ -52,17 +53,15 @@ class Discriminator(object):
                                         kernel_initializer=layers.variance_scaling_initializer())
                     tf.logging.debug("%s-fc3: shape %s", key, x.get_shape())
                     # policy output layer
-                    logits[key] = tf.layers.dense(x, self.config.action_size, name='logits', activation=None,
-                                                  kernel_initializer=layers.variance_scaling_initializer())
+                    out = tf.layers.dense(x, self.config.action_size, name='out', activation=None,
+                                          kernel_initializer=layers.variance_scaling_initializer())
+                    tf.logging.debug("%s-out: shape %s", key, out.get_shape())
+                    logits[key] = tf.gather_nd(out,
+                                               tf.stack((tf.range(self.n), a), axis=1), name='logits')
                     tf.logging.debug("%s-logits: shape %s", key, logits[key].get_shape())
-                    if not is_expert:
-                        scores = tf.gather_nd(logits[key],
-                                              tf.stack((tf.range(self.config.batch_size), a), axis=1),
-                                              name='scores')
-                        tf.logging.debug("%s-scores: shape %s", key, scores.get_shape())
-                        # cost(s,a) = log(D)
-                        rewards[key] = tf.log(tf.sigmoid(scores), name='rewards')
-                        tf.logging.debug("%s-rewards: shape %s", key, rewards[key].get_shape())
+                    # cost(s,a) = log(D)
+                    rewards[key] = tf.log(tf.sigmoid(logits[key]), name='rewards')
+                    tf.logging.debug("%s-rewards: shape %s", key, rewards[key].get_shape())
                     scene_variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=scene_scope)
                     tf.logging.debug('scene %s variables %s ', scene_scope, scene_variables)
                     if key not in self.train_vars:
@@ -70,21 +69,24 @@ class Discriminator(object):
                         self.train_vars[key] = shared_variables + scene_variables
         return logits, rewards
 
-    def build_graph(self, s_a, t_a, a_a):
-        self.s_a, self.t_a, self.a_a = s_a, t_a, a_a
+    def build_graph(self, s_a, t_a):
+        self.s_a, self.t_a = s_a, t_a
         with tf.variable_scope(self.name) as scope:
             self.global_step = tf.Variable(0, dtype=tf.int32, trainable=False, name='global_step')
             self.lr = tf.placeholder(tf.float32, [], name='lr')
             self.is_training = tf.placeholder(tf.bool, name='is_training')
+            self.n = tf.placeholder(tf.int32, [], name='n')
             self.s_e = tf.placeholder(tf.float32, [None, 2048, 4], name='observation')
             self.t_e = tf.placeholder(tf.float32, [None, 2048, 4], name='target')
             for scene_scope in self.scene_scopes:
                 key = rl.get_key([self.network_scope, scene_scope])
-                self.a_e[key] = tf.placeholder(tf.int32, [None], name='action')  # label
-            logits_e, _ = self.create(self.s_e, self.t_e, self.a_e, is_expert=True)
+                self.a_e[key] = tf.placeholder(tf.int32, [None], name='action')
+                self.a_a[key] = tf.placeholder(tf.int32, [None], name='action')
+            logits_e, _ = self.create(self.s_e, self.t_e, self.a_e)
             # Re-use discriminator weights on new inputs
             scope.reuse_variables()
-            logits_a, self.rewards = self.create(s_a, t_a, a_a, is_expert=False)
+            logits_a, self.rewards = self.create(self.s_a, self.t_a, self.a_a)
+            self.logits = logits_a
 
         for scene_scope in self.scene_scopes:
             key = rl.get_key([self.network_scope, scene_scope])

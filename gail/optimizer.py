@@ -82,9 +82,20 @@ class GailThread(object):
             trajs_e.append(self.sample_one_traj(get_act_fn_e))
         return TrajBatch.from_trajs(trajs_a), TrajBatch.from_trajs(trajs_e)
 
+    def compute_advantage(self, session, trajs):
+        n_total = len(trajs.obs.stacked)
+        t = [self.env.s_target] * n_total
+        rewards = self.local_network.run_reward(session, self.scopes, trajs.obs.stacked, t)
+
     def process(self, session, global_t, summary_writer):
         # draw experience with current policy and expert policy
+        logging.info("sampling ...")
         trajs_a, trajs_e = self.sample_trajs(session)
+
+        # compute Q out of discriminator's reward function and then V out of generator.
+        # then advantage = Q - V
+        logging.info("computing advantage")
+        rewards = self.compute_advantage(session,trajs_a)
         return self.config.min_traj_per_train
 
     def evaluate(self, sess, n_episodes, expert_agent=False):
@@ -113,7 +124,7 @@ def test_model():
     with tf.Session(config=sess_config) as session:
         session.run(tf.global_variables_initializer())
         summary_writer = tf.summary.FileWriter(train_logdir, session.graph)
-        for iter in range(max_iter):
+        for _ in range(max_iter):
             optimizer.process(session, 0, summary_writer)
 
 if __name__ == '__main__':
