@@ -10,11 +10,13 @@ class Configuration(object):
     batch_size = 128
     # dropout = 0.5
     early_stopping = 999
+    gamma = 1.0 # discount factor
     local_t_max = LOCAL_T_MAX
     lr = 4.0e-4
     lr_decay_step = 1000 # decay by 0.9
     lsr_epsilon = 0.1
     relu_leakiness = 0.01 # Leaky Relu
+    lam = 0.97
     max_epochs = 1   # # of train per iteration
     max_global_time_step = MAX_TIME_STEP
     max_steps_per_e = 5e3  # maximum steps per episode

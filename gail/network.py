@@ -78,6 +78,14 @@ class Generator(object):
         })
         return a, a_dist
 
+    def run_value(self, session, state, target, key):
+        v = session.run([self.values[key]], feed_dict={
+            self.s: state,
+            self.t: target,
+            self.lr: self.config.lr,
+            self.is_training: False,
+        })
+        return v[0]
 
 class Network(object):
     """

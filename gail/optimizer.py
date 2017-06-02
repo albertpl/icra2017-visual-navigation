@@ -9,7 +9,6 @@ import time
 import sys
 
 from scene_loader import THORDiscreteEnvironment as Environment
-from policy_network import PolicyNetwork
 from expert import Expert
 from config import Configuration
 from gail.discriminator import  Discriminator
@@ -31,7 +30,7 @@ class GailThread(object):
         self.network_scope = network_scope
         self.scene_scope = scene_scope
         self.task_scope = task_scope
-        self.scopes = (network_scope, scene_scope, task_scope)
+        self.key = rl.get_key((self.network_scope, self.scene_scope))
         self.local_network = global_network
         self.env = Environment({
                 'scene_name': self.scene_scope,
@@ -69,13 +68,13 @@ class GailThread(object):
 
     def sample_trajs(self, session):
         def get_act_fn_e(s, t):
-                a = self.expert.get_next_action()
-                a_dist = rl.choose_action_label_smooth(self.config, a, self.config.lsr_epsilon)
-                return a, a_dist
+            a = self.expert.get_next_action()
+            a_dist = rl.choose_action_label_smooth(self.config, a, self.config.lsr_epsilon)
+            return a, a_dist
 
         def get_act_fn_a(s, t):
-                a, a_dist = self.local_network.g.run_policy(session, [s], [t], self.scopes)
-                return a[0], a_dist[0]
+            a, a_dist = self.local_network.g.run_policy(session, [s], [t], self.key)
+            return a[0], a_dist[0]
         trajs_e, trajs_a = [], []
         for _ in range(self.config.min_traj_per_train):
             trajs_a.append(self.sample_one_traj(get_act_fn_a))
@@ -84,8 +83,48 @@ class GailThread(object):
 
     def compute_advantage(self, session, trajs):
         n_total = len(trajs.obs.stacked)
+        trajlengths = trajs.r.lengths
         t = [self.env.s_target] * n_total
-        rewards = self.local_network.run_reward(session, self.scopes, trajs.obs.stacked, t)
+        rewards_stack = self.local_network.run_reward(session, self.key, trajs.obs.stacked, t, trajs.a.stacked)
+        assert rewards_stack.shape == (trajs.obs.stacked.shape[0],)
+        # convert back to jagged array
+        r = RaggedArray(rewards_stack, lengths=trajs.r.lengths)
+
+        B, maxT = len(trajlengths), trajlengths.max()
+
+        # Compute Q values
+        q, rewards_B_T = rl.compute_qvals(r, self.config.gamma)
+        q_B_T = q.padded(fill=np.nan)
+        assert q_B_T.shape == (B, maxT)  # q values, padded with nans at the end
+
+        # Time-dependent baseline that cheats on the current batch
+        simplev_B_T = np.tile(np.nanmean(q_B_T, axis=0, keepdims=True), (B, 1))
+        assert simplev_B_T.shape == (B, maxT)
+        simplev = RaggedArray([simplev_B_T[i, :l] for i, l in enumerate(trajlengths)])
+
+        # State-dependent baseline (value function)
+        v_stacked = self.local_network.g.run_value(session, trajs.obs.stacked, t, self.key)
+        assert v_stacked.ndim == 1
+        v = RaggedArray(v_stacked, lengths=trajlengths)
+
+        # Compare squared loss of value function to that of the time-dependent value function
+        constfunc_prediction_loss = np.var(q.stacked)
+        simplev_prediction_loss = np.var(q.stacked - simplev.stacked)  # ((q.stacked-simplev.stacked)**2).mean()
+        simplev_r2 = 1. - simplev_prediction_loss / (constfunc_prediction_loss + 1e-8)
+        vfunc_prediction_loss = np.var(q.stacked - v_stacked)  # ((q.stacked-v_stacked)**2).mean()
+        vfunc_r2 = 1. - vfunc_prediction_loss / (constfunc_prediction_loss + 1e-8)
+
+        # Compute advantage -- GAE(gamma, lam) estimator
+        v_B_T = v.padded(fill=0.)
+        # append 0 to the right
+        v_B_Tp1 = np.concatenate([v_B_T, np.zeros((B, 1))], axis=1)
+        assert v_B_Tp1.shape == (B, maxT + 1)
+        delta_B_T = rewards_B_T + self.config.gamma * v_B_Tp1[:, 1:] - v_B_Tp1[:, :-1]
+        adv_B_T = rl.discount(delta_B_T, self.config.gamma * self.config.lam)
+        assert adv_B_T.shape == (B, maxT)
+        adv = RaggedArray([adv_B_T[i, :l] for i, l in enumerate(trajlengths)])
+        assert np.allclose(adv.padded(fill=0), adv_B_T)
+        return adv, q, vfunc_r2, simplev_r2
 
     def process(self, session, global_t, summary_writer):
         # draw experience with current policy and expert policy
@@ -95,8 +134,7 @@ class GailThread(object):
         # compute Q out of discriminator's reward function and then V out of generator.
         # then advantage = Q - V
         logging.info("computing advantage")
-        rewards = self.compute_advantage(session,trajs_a)
-        return self.config.min_traj_per_train
+        self.compute_advantage(session,trajs_a)
 
     def evaluate(self, sess, n_episodes, expert_agent=False):
         raise NotImplementedError
