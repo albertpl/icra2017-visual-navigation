@@ -10,6 +10,8 @@ import sys
 
 from scene_loader import THORDiscreteEnvironment as Environment
 from expert import Expert
+from utils import rl
+from utils import nn
 
 
 class DaggerThread(object):
@@ -41,37 +43,6 @@ class DaggerThread(object):
         self.actions = []
         self.targets = []
 
-    def choose_action_label_smooth(self, expected_action, epsilon):
-        """ P(k) =  (1-epsilon) * P_e +  e * 1/N """
-        pi_values = [epsilon/float(self.config.action_size)] * self.config.action_size
-        pi_values[expected_action] += 1-epsilon
-        return pi_values
-
-    def choose_action_greedy(self, pi_values):
-        # greedy algorithm since this is supervised learning
-        return np.argmax(pi_values, axis=0)
-
-    def choose_action(self, pi_values):
-        values = []
-        s = 0.0
-        for rate in pi_values:
-            s += rate
-            values.append(s)
-        r = random.random() * s
-        for i in range(len(values)):
-            if values[i] >= r:
-                return i
-        # fail safe
-        return len(values) - 1
-
-    def add_summary(self, writer, value_dict):
-        if writer is None or len(value_dict) == 0:
-            return
-        value = [tf.Summary.Value(tag=k, simple_value=v) for k,v in value_dict.items()]
-        summary = tf.Summary(value=value)
-        writer.add_summary(summary, global_step=self.local_network.get_global_step())
-        logging.debug("writing summary %s" % (str(summary)))
-
     def train(self, session, writer):
         assert len(self.states) == len(self.actions), "data count of action and state mismatch"
         s = self.states
@@ -101,12 +72,12 @@ class DaggerThread(object):
             if self.first_iteration:
                 # use expert policy before any training
                 expert_action = action = self.expert.get_next_action()
-                expert_lsr_pi = self.choose_action_label_smooth(expert_action, self.config.lsr_epsilon)
+                expert_lsr_pi = rl.choose_action_label_smooth(self.config, expert_action, self.config.lsr_epsilon)
             else:
                 expert_action = self.expert.get_next_action()
-                expert_lsr_pi = self.choose_action_label_smooth(expert_action, self.config.lsr_epsilon)
+                expert_lsr_pi = rl.choose_action_label_smooth(self.config, expert_action, self.config.lsr_epsilon)
                 pi_ = self.local_network.run_policy(sess, self.env.s_t, self.env.s_target, self.scopes)
-                action = self.choose_action(pi_)
+                action = rl.choose_action(pi_)
                 logging.debug("action=%(action)d expert_action=%(expert_action)d "
                               "expert_lsr_pi=%(expert_lsr_pi)s pi_=%(pi_)s" % locals())
             self.states.insert(0, self.env.s_t)
@@ -126,7 +97,7 @@ class DaggerThread(object):
                 }
                 if not self.first_iteration:
                     # record agent's score only
-                    self.add_summary(summary_writer, summary_values)
+                    nn.add_summary(summary_writer, summary_values)
                 self.episode_length = 0
                 self.env.reset()
                 break
@@ -150,7 +121,7 @@ class DaggerThread(object):
                 else:
                     expert_action = self.expert.get_next_action()
                     pi_ = self.local_network.run_policy(sess, self.env.s_t, self.env.s_target, self.scopes)
-                    action = self.choose_action(pi_)
+                    action = rl.choose_action(pi_)
                     accuracies.append(1.0 if expert_action == action else 0.0)
                     logging.debug("action=%(action)d expert_action=%(expert_action)d pi_=%(pi_)s" % locals())
                 self.env.step(action)

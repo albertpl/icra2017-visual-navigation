@@ -4,11 +4,9 @@ from tensorflow.contrib import layers
 import logging
 import math
 import numpy as np
-import sys
-sys.path.append(".")
 from utils import nn, rl
 from config import Configuration
-from discriminator import Discriminator
+from gail.discriminator import Discriminator
 
 tf.logging.set_verbosity(tf.logging.DEBUG)
 
@@ -58,7 +56,9 @@ class Generator(object):
                                              kernel_initializer=layers.variance_scaling_initializer())
                     self.actions_dists[key] = tf.nn.softmax(logits=logits)
                     tf.logging.debug("%s-action_dist: shape %s", key, self.actions_dists[key].get_shape())
-                    self.actions[key] = tf.cast(tf.argmax(logits, axis=1), tf.int32, name='action_a')
+                    self.actions[key] = tf.cast(tf.reshape(
+                        tf.argmax(logits, axis=1), (-1,)), tf.int32, name='action_a')
+                    tf.logging.debug("%s-action: shape %s", key, self.actions[key].get_shape())
                     # value output layer
                     values = tf.layers.dense(x, 1, name='value_logits', activation=None,
                                              kernel_initializer=layers.variance_scaling_initializer())
@@ -69,15 +69,15 @@ class Generator(object):
                     if key not in self.train_vars:
                         self.train_vars[key] = scene_variables
 
-    def run_policy(self, session, state, target, scopes):
-        k = rl.get_key(scopes[:2])
-        pi_out = session.run(self.actions_dists[k], feed_dict={
-            self.s: [state],
-            self.t: [target],
+    def run_policy(self, session, state, target, scope):
+        key = rl.get_key(scope[:2])
+        a, a_dist = session.run([self.actions[key], self.actions_dists[key]], feed_dict={
+            self.s: state,
+            self.t: target,
             self.lr: self.config.lr,
             self.is_training: False,
         })
-        return pi_out[0]
+        return a, a_dist
 
 
 class Network(object):
@@ -182,16 +182,18 @@ def test_model():
     s_e = np.random.rand(batch_size, 2048, 4)
     t_e = np.random.rand(batch_size, 2048, 4)
     max_iter = 100
+    scope = (network_scope, 'scene2', 'task1')
     sess_config = tf.ConfigProto(log_device_placement=False,
                                  allow_soft_placement=True)
     with tf.Session(config=sess_config) as session:
         summary_writer = tf.summary.FileWriter(train_logdir, session.graph)
         session.run(tf.global_variables_initializer())
         for i in range(max_iter):
-            scope = (network_scope, 'scene2', 'task1')
             loss = model.step_d(session, scope, s_a, t_a, s_e, t_e, a_e, writer=summary_writer)
             rewards = float(np.mean(model.run_reward(session, scope, s_a, t_a)))
             print("%(i)d loss=%(loss)f rewards=%(rewards)f" % locals())
+        a, a_dist = model.g.run_policy(session, s_a, t_a, scope)
+        print(a_dist[0])
     summary_writer.close()
 
 if __name__ == '__main__':

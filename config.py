@@ -18,6 +18,7 @@ class Configuration(object):
     max_epochs = 1   # # of train per iteration
     max_global_time_step = MAX_TIME_STEP
     max_steps_per_e = 5e3  # maximum steps per episode
+    min_traj_per_train = 1
     num_eval_episodes = NUM_EVAL_EPISODES
     reg = 0.04   # regularization for weight
     steps_per_save = 1e+3
