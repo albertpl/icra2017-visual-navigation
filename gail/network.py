@@ -158,7 +158,7 @@ class Generator(object):
     def run_hvp(self, session, state, target, action, a_dist, vector, scene_scope):
         assert len(state) == len(target) == len(action) == len(a_dist)
         key = rl.get_key([self.network_scope, scene_scope])
-        ret = session.run(self.sur_obj[key], feed_dict={
+        ret = session.run(self.hvp[key], feed_dict={
             self.s: state,
             self.t: target,
             self.a_old: action,
@@ -251,26 +251,14 @@ class Network(object):
     def run_reward(self, session, scene_scope, s_a, t_a, a_a):
         assert len(s_a) == len(t_a) == len(a_a)
         key = rl.get_key([self.d.network_scope, scene_scope])
-        batch_size = self.config.batch_size
-        n_data = len(s_a)
-        n_steps = int(math.ceil(n_data / batch_size))
-        rewards = []
-        for i in range(n_steps):
-            # generate indicies for the batch
-            start_idx = i * batch_size
-            end_idx = min(start_idx+batch_size, n_data)
-            actual_size = end_idx - start_idx
-            feed_dict = {
-                self.g.s: s_a[start_idx:end_idx],
-                self.g.t: t_a[start_idx:end_idx],
-                self.d.a_a[key]: a_a[start_idx:end_idx],
-                self.d.n: actual_size,
-                self.g.lr: self.config.lr,
-            }
-            r = session.run([self.d.rewards[key]], feed_dict=feed_dict)[0]
-            rewards.append(r)
-        rewards = np.concatenate(rewards, axis=0)
-        return rewards
+        feed_dict = {
+            self.g.s: s_a,
+            self.g.t: t_a,
+            self.d.a_a[key]: a_a,
+            self.d.n: len(s_a),
+            self.g.lr: self.config.lr,
+        }
+        return session.run(self.d.rewards[key], feed_dict=feed_dict)
 
 
 def test_d(session, model, config, scene_scope, summary_writer):
@@ -290,9 +278,10 @@ def test_d(session, model, config, scene_scope, summary_writer):
 
 def test_g(session, model, config, scene_scope, summary_writer):
     batch_size = config.batch_size
-    s_a = np.random.rand(batch_size/2, 2048, 4) - 0.5
-    t_a = np.random.rand(batch_size/2, 2048, 4) - 0.5
-    adv = np.random.rand(batch_size/2)
+    n_data = 3 * batch_size + 1
+    s_a = np.random.rand(n_data, 2048, 4) - 0.5
+    t_a = np.random.rand(n_data, 2048, 4) - 0.5
+    adv = np.random.rand(n_data)
     max_iter = 100
     var_vs = model.g.get_vars(session, scene_scope)
     print("get_vars return shape %s" % str(var_vs.shape))
@@ -307,6 +296,9 @@ def test_g(session, model, config, scene_scope, summary_writer):
     print("sur_obj=%(sur_obj)f, kl=%(kl)f" % locals())
     sur_obj, _, kl = model.g.run_sur_obj_kl_with_grads(session, s_a, t_a, a_old, a_dist_old, adv, scene_scope)
     print("sur_obj=%(sur_obj)f, kl=%(kl)f" % locals())
+    vector = np.random.rand(*var_vs.shape)
+    hvp = model.g.run_hvp(session, s_a, t_a, a, a_dist, vector, scene_scope)
+    assert hvp.shape == vector.shape
 
 
 def test_model():
@@ -320,7 +312,7 @@ def test_model():
 
     sess_config = tf.ConfigProto(log_device_placement=False,
                                  allow_soft_placement=True)
-    for test_fn in (test_g,):
+    for test_fn in (test_g, test_d):
         with tf.Session(config=sess_config) as session:
             summary_writer = tf.summary.FileWriter(train_logdir, session.graph)
             session.run(tf.global_variables_initializer())

@@ -30,7 +30,6 @@ class GailThread(object):
         self.network_scope = network_scope
         self.scene_scope = scene_scope
         self.task_scope = task_scope
-        self.key = rl.get_key((self.network_scope, self.scene_scope))
         self.local_network = global_network
         self.env = Environment({
                 'scene_name': self.scene_scope,
@@ -73,7 +72,7 @@ class GailThread(object):
             return a, a_dist
 
         def get_act_fn_a(s, t):
-            a, a_dist = self.local_network.g.run_policy(session, [s], [t], self.key)
+            a, a_dist = self.local_network.g.run_policy(session, [s], [t], self.scene_scope)
             return a[0], a_dist[0]
         trajs_e, trajs_a = [], []
         for _ in range(self.config.min_traj_per_train):
@@ -85,7 +84,8 @@ class GailThread(object):
         n_total = len(trajs.obs.stacked)
         trajlengths = trajs.r.lengths
         t = [self.env.s_target] * n_total
-        rewards_stack = self.local_network.run_reward(session, self.key, trajs.obs.stacked, t, trajs.a.stacked)
+        rewards_stack = self.local_network.run_reward(session, self.scene_scope,
+                                                      trajs.obs.stacked, t, trajs.actions.stacked)
         assert rewards_stack.shape == (trajs.obs.stacked.shape[0],)
         # convert back to jagged array
         r = RaggedArray(rewards_stack, lengths=trajs.r.lengths)
@@ -103,7 +103,7 @@ class GailThread(object):
         simplev = RaggedArray([simplev_B_T[i, :l] for i, l in enumerate(trajlengths)])
 
         # State-dependent baseline (value function)
-        v_stacked = self.local_network.g.run_value(session, trajs.obs.stacked, t, self.key)
+        v_stacked = self.local_network.g.run_value(session, trajs.obs.stacked, t, self.scene_scope)
         assert v_stacked.ndim == 1
         v = RaggedArray(v_stacked, lengths=trajlengths)
 
@@ -126,6 +126,52 @@ class GailThread(object):
         assert np.allclose(adv.padded(fill=0), adv_B_T)
         return adv, q, vfunc_r2, simplev_r2
 
+    def ng_step(self, session, trajs, adv):
+        n_total = len(trajs.obs.stacked)
+        trajlengths = trajs.r.lengths
+        t = [self.env.s_target] * n_total
+
+        def hvp(v):
+            return self.local_network.g.run_hvp(session,
+                                                trajs.obs.stacked, t,
+                                                trajs.actions.stacked, trajs.a_dists.stacked,
+                                                v,
+                                                self.scene_scope)
+        theta = self.local_network.g.get_vars(session, self.scene_scope)
+
+        # compute grads of obj
+        _, obj_grads, _ = self.local_network.g.run_sur_obj_kl_with_grads(session,
+                                                            trajs.obs.stacked, t,
+                                                            trajs.actions.stacked, trajs.a_dists.stacked,
+                                                            adv.stacked,
+                                                            self.scene_scope)
+        # compute hessian with CG
+        step_dir = rl.conjugate_gradient(hvp, -obj_grads)
+        shs = .5 * step_dir.dot(hvp(step_dir))
+        assert shs > 0
+
+        lm = np.sqrt(shs / self.config.policy_max_kl)
+        full_step = step_dir / lm
+        neg_gdot_step_dir = -obj_grads.dot(step_dir)
+
+        def compute_obj(th):
+            self.local_network.g.set_vars(session, th, self.scene_scope)
+            return self.local_network.g.run_sur_obj_kl(
+                session,
+                trajs.obs.stacked, t,
+                trajs.actions.stacked, trajs.a_dists.stacked,
+                adv.stacked,
+                self.scene_scope
+            )[0]
+        theta = rl.linesearch(compute_obj, theta, full_step, neg_gdot_step_dir/lm)
+        self.local_network.g.set_vars(session, theta, self.scene_scope)
+        obj, kl = self.local_network.g.run_sur_obj_kl(session,
+                                                    trajs.obs.stacked, t,
+                                                    trajs.actions.stacked, trajs.a_dists.stacked,
+                                                    adv.stacked,
+                                                    self.scene_scope)
+        logging.info("after ng_step: obj=%(obj)f kl=%(kl)f" % locals())
+
     def process(self, session, global_t, summary_writer):
         # draw experience with current policy and expert policy
         logging.info("sampling ...")
@@ -134,7 +180,8 @@ class GailThread(object):
         # compute Q out of discriminator's reward function and then V out of generator.
         # then advantage = Q - V
         logging.info("computing advantage")
-        self.compute_advantage(session, trajs_a)
+        adv, q, vfunc_r2, simplev_r2 = self.compute_advantage(session, trajs_a)
+        self.ng_step(session, trajs_a, adv)
 
     def evaluate(self, sess, n_episodes, expert_agent=False):
         raise NotImplementedError
@@ -143,22 +190,19 @@ class GailThread(object):
 def test_model():
     config = Configuration()
     config.max_steps_per_e = 10
-    network_scope = 'network_scope'
     scene_scopes = ('bathroom_02', 'bedroom_04', 'kitchen_02', 'living_room_08')
 
     train_logdir = 'logdir'
-    discriminator = Discriminator(config, network_scope=network_scope, scene_scopes=scene_scopes)
-    generator = Generator(config, network_scope=network_scope, scene_scopes=scene_scopes)
-    model = Network(config, generator, discriminator, network_scope=network_scope, scene_scopes=scene_scopes)
+    discriminator = Discriminator(config, scene_scopes=scene_scopes)
+    generator = Generator(config, scene_scopes=scene_scopes)
+    model = Network(config, generator, discriminator, scene_scopes=scene_scopes)
 
     optimizer = GailThread(config, model, 1,
-                           network_scope=network_scope,
                            scene_scope='bathroom_02',
                            task_scope='1')
     sess_config = tf.ConfigProto(log_device_placement=False,
                                  allow_soft_placement=True)
-    batch_size = config.batch_size
-    max_iter = 1
+    max_iter = 100
     with tf.Session(config=sess_config) as session:
         session.run(tf.global_variables_initializer())
         summary_writer = tf.summary.FileWriter(train_logdir, session.graph)
@@ -166,4 +210,5 @@ def test_model():
             optimizer.process(session, 0, summary_writer)
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
     test_model()

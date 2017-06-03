@@ -72,7 +72,7 @@ class RaggedArray(object):
 
 class TrajBatch(object):
     def __init__(self, trajs, obs, adist, a, r, time):
-        self.trajs, self.obs, self.adist, self.a, self.r, self.time = \
+        self.trajs, self.obs, self.a_dists, self.actions, self.r, self.time = \
             trajs, obs, adist, a, r, time
 
     @classmethod
@@ -88,7 +88,7 @@ class TrajBatch(object):
     def with_replaced_reward(self, new_r):
         new_trajs = [Trajectory(traj.obs, traj.a_dists, traj.actions, traj_new_r)
                      for traj, traj_new_r in zip(self.trajs, new_r)]
-        return TrajBatch(new_trajs, self.obs, self.adist, self.a, new_r, self.time)
+        return TrajBatch(new_trajs, self.obs, self.a_dists, self.actions, new_r, self.time)
 
     def __len__(self):
         return len(self.trajs)
