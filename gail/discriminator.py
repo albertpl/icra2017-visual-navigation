@@ -11,11 +11,10 @@ class Discriminator(object):
     def __init__(self,
                  config,
                  device='/cpu:0',
-                 name='discriminator',
-                 network_scope='network',
+                 network_scope='discriminator',
                  scene_scopes=('scene',)):
-        self.config, self._device, self.network_scope, self.scene_scopes, self.name = \
-            config, device, network_scope, scene_scopes, name
+        self.config, self._device, self.network_scope, self.scene_scopes = \
+            config, device, network_scope, scene_scopes
         self.global_step, self.lr, self.is_training = None, None, None
         self.logits, self.rewards, self.losses = {}, {}, {}
         self.train_vars, self.train_steps, self.summaries = {}, {}, {}
@@ -62,7 +61,7 @@ class Discriminator(object):
                     # cost(s,a) = log(D)
                     rewards[key] = tf.log(tf.sigmoid(logits[key]), name='rewards')
                     tf.logging.debug("%s-rewards: shape %s", key, rewards[key].get_shape())
-                    scene_variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=scene_scope)
+                    scene_variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=key)
                     tf.logging.debug('scene %s variables %s ', scene_scope, scene_variables)
                     if key not in self.train_vars:
                         tf.logging.debug('set train_vars for %s', key)
@@ -71,7 +70,7 @@ class Discriminator(object):
 
     def build_graph(self, s_a, t_a):
         self.s_a, self.t_a = s_a, t_a
-        with tf.variable_scope(self.name) as scope:
+        with tf.variable_scope(self.network_scope) as scope:
             self.global_step = tf.Variable(0, dtype=tf.int32, trainable=False, name='global_step')
             self.lr = tf.placeholder(tf.float32, [], name='lr')
             self.is_training = tf.placeholder(tf.bool, name='is_training')

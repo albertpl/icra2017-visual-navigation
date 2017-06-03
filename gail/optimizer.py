@@ -134,7 +134,7 @@ class GailThread(object):
         # compute Q out of discriminator's reward function and then V out of generator.
         # then advantage = Q - V
         logging.info("computing advantage")
-        self.compute_advantage(session,trajs_a)
+        self.compute_advantage(session, trajs_a)
 
     def evaluate(self, sess, n_episodes, expert_agent=False):
         raise NotImplementedError

@@ -22,6 +22,8 @@ class Configuration(object):
     max_steps_per_e = 5e3  # maximum steps per episode
     min_traj_per_train = 2
     num_eval_episodes = NUM_EVAL_EPISODES
+    policy_max_kl = 0.01  # maximum KL divergency for TRPO
+    policy_cg_damping = 0.01  # multiple of I to mix with Hessian for HVP
     reg = 0.04   # regularization for weight
     steps_per_save = 1e+3
     steps_per_eval = 1e+2
