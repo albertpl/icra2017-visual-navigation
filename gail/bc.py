@@ -89,7 +89,7 @@ class BCThread(object):
         logging.debug("sampling ...")
         trajs_e = self.sample_trajs_e(session, self.config.min_traj_per_train)
         n_total_e, step_e = len(trajs_e.obs.stacked), float(np.mean(trajs_e.obs.lengths))
-        logging.info("sampled experts %(n_total_e)d pairs (step=%(step_e)f)" % locals())
+        logging.debug("sampled experts %(n_total_e)d pairs (step=%(step_e)f)" % locals())
         t = [self.env.s_target] * n_total_e
 
         # only policy network in generator

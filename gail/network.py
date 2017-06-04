@@ -106,7 +106,9 @@ class Generator(object):
                                           tf.stack((tf.range(self.n), self.a_old), axis=1), name='pi_old')
                     # surrogate objective
                     epsilon = 1e-8
-                    self.sur_obj[key] = tf.reduce_mean(tf.exp(tf.log(pi+epsilon) - tf.log(pi_old+epsilon)) * self.adv, name='sur_obj')
+                    # minimize obj, i.e. loss
+                    self.sur_obj[key] = -tf.reduce_mean(
+                        tf.exp(tf.log(pi+epsilon) - tf.log(pi_old+epsilon)) * self.adv, name='sur_obj')
                     tf.logging.debug("%s-sur_obj: shape %s", key, self.sur_obj[key].get_shape())
                     self.obj_grad[key] = nn.flat_grad(self.sur_obj[key], var_list)
                     # KL divergence
