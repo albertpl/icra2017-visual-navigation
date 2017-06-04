@@ -11,9 +11,10 @@ import sys
 from scene_loader import THORDiscreteEnvironment as Environment
 from expert import Expert
 from config import Configuration
-from gail.discriminator import Discriminator
-from gail.network import Generator, Network
-from gail.trajectory import *
+from imitation.discriminator import Discriminator
+from imitation.network import Generator, Network
+from imitation.sample import sample_one_traj
+from utils.trajectory import *
 from utils import rl, nn
 
 
@@ -44,27 +45,6 @@ class BCThread(object):
         self.actions = []
         self.targets = []
 
-    def sample_one_traj(self, policy_fn):
-        terminal = False
-        episode_length = 0
-        states, actions, a_dists, rewards = [], [], [], []
-        self.env.reset()
-        while not terminal:
-            a, a_dist = policy_fn(self.env.s_t, self.env.s_target)
-            states.append(self.env.s_t)
-            actions.append(a)
-            a_dists.append(a_dist)
-            self.env.step(a)
-            self.env.update()
-            episode_length += 1
-            # ad-hoc reward for navigation
-            reward = 10.0 if self.env.terminal else -0.01
-            rewards.append(reward)
-            terminal = True if episode_length >= self.config.max_steps_per_e else self.env.terminal
-            if terminal:
-                break
-        return Trajectory(np.array(states), np.array(a_dists), np.array(actions), np.array(rewards))
-
     def sample_trajs_e(self, session, n_traj):
         def get_act_fn_e(s, t):
             a = self.expert.get_next_action()
@@ -72,7 +52,7 @@ class BCThread(object):
             return a, a_dist
         trajs_e = []
         for _ in range(n_traj):
-            trajs_e.append(self.sample_one_traj(get_act_fn_e))
+            trajs_e.append(sample_one_traj(self.config, self.env, get_act_fn_e))
         return TrajBatch.from_trajs(trajs_e)
 
     def sample_trajs_a(self, session, n_traj):
@@ -81,7 +61,7 @@ class BCThread(object):
             return a[0], a_dist[0]
         trajs = []
         for _ in range(n_traj):
-            trajs.append(self.sample_one_traj(get_act_fn_a))
+            trajs.append(sample_one_traj(self.config, self.env, get_act_fn_a))
         return TrajBatch.from_trajs(trajs)
 
     def process(self, session, global_iter, writer):
@@ -93,7 +73,7 @@ class BCThread(object):
         t = [self.env.s_target] * n_total_e
 
         # only policy network in generator
-        loss = self.local_network.g.step_policy_bc(
+        loss, acc = self.local_network.g.step_policy(
             session, trajs_e.obs.stacked, t, trajs_e.a_dists.stacked, writer, self.scene_scope)
 
         # evaluate with agent policy
@@ -106,13 +86,22 @@ class BCThread(object):
             "stats/" + self.scene_scope + "-steps_agent": step_a,
             "stats/" + self.scene_scope + "-steps_expert": step_e,
             "stats/" + self.scene_scope + "-loss_p": loss,
+            "stats/" + self.scene_scope + "-acc_p": acc,
         }
         nn.add_summary(writer, summary_dicts, global_step=global_iter)
         # treat global_t as iteration and increase by one
-        return 1
+        return n_total_e
 
-    def evaluate(self, session, n_episodes, expert_agent=False):
-        raise NotImplementedError
+    def evaluate(self, session, n_episodes):
+        trajs_a, trajs_e = self.sample_trajs_a(session, n_episodes), \
+                           self.sample_trajs_e(session, n_episodes)
+        step_a, step_e = float(np.mean(trajs_a.obs.lengths)), float(np.mean(trajs_e.obs.lengths))
+        n_total_e = len(trajs_e.obs.stacked)
+        t = [self.env.s_target] * n_total_e
+        acc, _ = self.local_network.g.eval_policy(
+            session, trajs_e.obs.stacked, t, trajs_e.a_dists.stacked, self.scene_scope)
+        return step_a, acc, step_e, 0.0, 0.0
+
 
 
 def test_model():

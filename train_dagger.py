@@ -107,7 +107,7 @@ class DaggerThread(object):
         self.first_iteration = False
         return self.local_t - start_local_t
 
-    def evaluate(self, sess, n_episodes, expert_agent=False):
+    def evaluate_agent(self, sess, n_episodes, expert_agent):
         ep_lengths = []
         ep_collisions = []
         accuracies = []
@@ -136,6 +136,11 @@ class DaggerThread(object):
             logging.debug("episode %(i)d ends with %(step)d steps" % locals())
             ep_lengths.append(step)
             ep_collisions.append(n_collision)
-        return ep_lengths, ep_collisions, accuracies
+        return np.mean(ep_lengths), np.mean(ep_collisions), np.mean(accuracies)
+
+    def evaluate(self, sess, n_episodes):
+        length, collision, acc = self.evaluate_agent(sess, n_episodes, False)
+        exp_length, exp_collision, _ = self.evaluate_agent(sess, n_episodes, False)
+        return length, acc, exp_length, collision, exp_collision
 
 

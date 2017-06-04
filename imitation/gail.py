@@ -11,9 +11,10 @@ import sys
 from scene_loader import THORDiscreteEnvironment as Environment
 from expert import Expert
 from config import Configuration
-from gail.discriminator import Discriminator
-from gail.network import Generator, Network
-from gail.trajectory import *
+from imitation.discriminator import Discriminator
+from imitation.network import Generator, Network
+from imitation.sample import *
+from utils.trajectory import *
 from utils import rl, nn
 
 
@@ -44,41 +45,24 @@ class GailThread(object):
         self.actions = []
         self.targets = []
 
-    def sample_one_traj(self, policy_fn):
-        terminal = False
-        episode_length = 0
-        states, actions, a_dists, rewards = [], [], [], []
-        self.env.reset()
-        while not terminal:
-            a, a_dist = policy_fn(self.env.s_t, self.env.s_target)
-            states.append(self.env.s_t)
-            actions.append(a)
-            a_dists.append(a_dist)
-            self.env.step(a)
-            self.env.update()
-            episode_length += 1
-            # ad-hoc reward for navigation
-            reward = 10.0 if self.env.terminal else -0.01
-            rewards.append(reward)
-            terminal = True if episode_length >= self.config.max_steps_per_e else self.env.terminal
-            if terminal:
-                break
-        return Trajectory(np.array(states), np.array(a_dists), np.array(actions), np.array(rewards))
-
-    def sample_trajs(self, session):
+    def sample_trajs_e(self, session, n_traj):
         def get_act_fn_e(s, t):
             a = self.expert.get_next_action()
             a_dist = rl.choose_action_label_smooth(self.config, a, self.config.lsr_epsilon)
             return a, a_dist
+        trajs_e = []
+        for _ in range(n_traj):
+            trajs_e.append(sample_one_traj(self.config, self.env, get_act_fn_e))
+        return TrajBatch.from_trajs(trajs_e)
 
+    def sample_trajs_a(self, session, n_traj):
         def get_act_fn_a(s, t):
             a, a_dist = self.local_network.g.run_policy(session, [s], [t], self.scene_scope)
             return a[0], a_dist[0]
-        trajs_e, trajs_a = [], []
-        for _ in range(self.config.min_traj_per_train):
-            trajs_a.append(self.sample_one_traj(get_act_fn_a))
-            trajs_e.append(self.sample_one_traj(get_act_fn_e))
-        return TrajBatch.from_trajs(trajs_a), TrajBatch.from_trajs(trajs_e)
+        trajs = []
+        for _ in range(n_traj):
+            trajs.append(sample_one_traj(self.config, self.env, get_act_fn_a))
+        return TrajBatch.from_trajs(trajs)
 
     def compute_advantage(self, session, trajs):
         n_total = len(trajs.obs.stacked)
@@ -204,13 +188,13 @@ class GailThread(object):
         loss_d, rewards_e, rewards_a = float('inf'), float('-inf'), float('-inf')
         # draw experience with current policy and expert policy
         logging.debug("sampling ...")
-        trajs_a, trajs_e = self.sample_trajs(session)
+        trajs_a, trajs_e = self.sample_trajs_a(session, self.config.min_traj_per_train), \
+                           self.sample_trajs_e(session, self.config.min_traj_per_train)
         n_total_a, step_a = len(trajs_a.obs.stacked), float(np.mean(trajs_a.obs.lengths))
         n_total_e, step_e = len(trajs_e.obs.stacked), float(np.mean(trajs_e.obs.lengths))
         logging.info("sampled agents %(n_total_a)d pairs (step=%(step_a)f) and "
                      "experts %(n_total_e)d pairs (step=%(step_e)f)" % locals())
-        n_total = len(trajs_a.obs.stacked)
-        t = [self.env.s_target] * n_total
+        t = [self.env.s_target] * n_total_a
 
         # update reward function (discriminator)
         d_cycle = 1
@@ -244,11 +228,13 @@ class GailThread(object):
             "stats/" + self.scene_scope + "-rewards_e": rewards_e,
         }
         nn.add_summary(writer, summary_dicts, global_step=global_iter)
-        # treat global_t as iteration and increase by one
-        return 1
+        return n_total_a + n_total_e
 
-    def evaluate(self, sess, n_episodes, expert_agent=False):
-        raise NotImplementedError
+    def evaluate(self, session, n_episodes):
+        trajs_a, trajs_e = self.sample_trajs_a(session, n_episodes), \
+                           self.sample_trajs_e(session, n_episodes)
+        step_a, step_e = float(np.mean(trajs_a.obs.lengths)), float(np.mean(trajs_e.obs.lengths))
+        return step_a, 0.0, step_e, 0.0, 0.0
 
 
 def test_model():

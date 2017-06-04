@@ -6,7 +6,7 @@ import math
 import numpy as np
 from utils import nn, rl
 from config import Configuration
-from gail.discriminator import Discriminator
+from imitation.discriminator import Discriminator
 
 tf.logging.set_verbosity(tf.logging.DEBUG)
 
@@ -187,6 +187,18 @@ class Generator(object):
         writer.add_summary(summary)
         return acc, loss
 
+    def eval_policy(self, session, state, target, a_dist_target, scene_scope):
+        assert len(state) == len(target) == len(a_dist_target)
+        key = rl.get_key([self.network_scope, scene_scope])
+        ops = (self.evals_p[key], self.loss_p[key])
+        acc, loss = session.run(ops, feed_dict={
+            self.s: state,
+            self.t: target,
+            self.a_dist_old: a_dist_target,
+            self.lr: self.config.lr,
+        })
+        return acc, loss
+
     # TRPO functions
     def run_sur_obj_kl(self, session, state, target, action, a_dist, adv, scene_scope):
         assert len(state) == len(target) == len(action) == len(a_dist)
@@ -336,13 +348,15 @@ def test_policy_supervised(session, model, config, scene_scope, summary_writer):
     for _ in range(max_iter):
         acc, loss = model.g.step_policy(session, s, t, a_dist_target, summary_writer, scene_scope)
         print("acc=%(acc)f loss=%(loss)f" % locals())
+    acc, loss = model.g.eval_policy(session, s, t, a_dist_target, scene_scope)
+    print("acc=%(acc)f loss=%(loss)f" % locals())
 
 
 def test_model():
     config = Configuration()
     config.lr = 3e-5
     scene_scopes = ('scene1', 'scene2', 'scene3', 'scene4')
-    train_logdir = 'logdir'
+    train_logdir = 'logdir_ut'
     discriminator = Discriminator(config, network_scope='discriminator', scene_scopes=scene_scopes)
     generator = Generator(config, network_scope='generator', scene_scopes=scene_scopes)
     model = Network(config, generator, discriminator, network_scope='network', scene_scopes=scene_scopes)

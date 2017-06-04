@@ -1,7 +1,8 @@
 import numpy as np
 import logging
 import random
-from gail.trajectory import RaggedArray
+from utils.trajectory import RaggedArray
+
 
 def choose_action_label_smooth(config, action, epsilon):
     """ epsilon-greedy: P(k) =  (1-epsilon) * P_e +  e * 1/N """

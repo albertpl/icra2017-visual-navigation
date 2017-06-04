@@ -18,8 +18,9 @@ class Configuration(object):
     lsr_epsilon = 0.1
     relu_leakiness = 0.01  # Leaky Relu
     lam = 0.97  # GAE lambda
-    max_epochs = 1   # # of train per iteration
+    max_epochs = 1   # of train per iteration
     max_global_time_step = MAX_TIME_STEP
+    max_iteration = MAX_TIME_STEP  # maximum number of training
     max_steps_per_e = 5e3  # maximum steps per episode
     min_traj_per_train = 2
     num_eval_episodes = NUM_EVAL_EPISODES   # number of episodes per eval
