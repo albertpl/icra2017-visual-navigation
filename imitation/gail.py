@@ -148,7 +148,7 @@ class GailThread(object):
             # compute hessian with CG
             step_dir = rl.conjugate_gradient(hvp, -obj_grads)
             shs = .5 * step_dir.dot(hvp(step_dir))
-            assert shs > 0
+            assert shs > 0, "%f " % shs
 
             lm = np.sqrt(shs / self.config.policy_max_kl)
             full_step = step_dir / lm
@@ -213,7 +213,7 @@ class GailThread(object):
         t = [self.env.s_target] * n_total
 
         # update reward function (discriminator)
-        d_cycle = 0
+        d_cycle = 1
         for _ in range(d_cycle):
             loss_d, rewards_a, rewards_e = self.update_discriminator(
                 session, trajs_a, trajs_e, writer, t)
@@ -230,7 +230,7 @@ class GailThread(object):
             obj, kl = self.update_policy(session, trajs_a, adv, t)
 
             # update value network via MSE
-            #loss_v = self.update_value(session, trajs_a, q, writer, t)
+            loss_v = self.update_value(session, trajs_a, q, writer, t)
 
         # add summaries
         summary_dicts = {
@@ -261,7 +261,7 @@ def test_model():
     generator = Generator(config, scene_scopes=scene_scopes)
     model = Network(config, generator, discriminator, scene_scopes=scene_scopes)
 
-    optimizer = GailThread(config, model, 1,
+    thread = GailThread(config, model, 1,
                            scene_scope='bathroom_02',
                            task_scope='1')
     sess_config = tf.ConfigProto(log_device_placement=False,
@@ -271,7 +271,7 @@ def test_model():
         session.run(tf.global_variables_initializer())
         writer = tf.summary.FileWriter(train_logdir, session.graph)
         for i in range(max_iter):
-            optimizer.process(session, i, writer)
+            thread.process(session, i, writer)
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')

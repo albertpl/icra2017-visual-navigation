@@ -89,7 +89,7 @@ def conjugate_gradient(f_Ax, b, cg_iters=10, residual_tol=1e-10):
     rdotr = r.dot(r)
     for i in range(cg_iters):
         z = f_Ax(p)
-        v = rdotr / p.dot(z)
+        v = rdotr / (p.dot(z) + 1e-8)
         x += v * p
         r -= v * z
         newrdotr = r.dot(r)

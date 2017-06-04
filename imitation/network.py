@@ -23,7 +23,7 @@ class Generator(object):
         self.network_scope, self.scene_scopes = network_scope, scene_scopes
         tf.logging.debug('config=%s', self.config)
 
-        self.evals, self.summaries_v, self.summaries_p, self.actions = {}, {}, {}, {}
+        self.evals_p, self.summaries_v, self.summaries_p, self.actions = {}, {}, {}, {}
         self.train_vars_p, self.train_vars_v, self.actions_dists, self.values = {}, {}, {}, {}
         self.kl, self.sur_obj, self.hvp, self.get_op, self.set_op = {}, {}, {}, {}, {}
         self.var_vs, self.fc1, self.fc2 = None, None, None
@@ -118,7 +118,8 @@ class Generator(object):
                     # hessian vector product
                     self.hvp[key] = nn.flat_grad(tf.reduce_sum(self.kl_grad[key] * self.v, name='HVP'), var_list)
 
-                with tf.name_scope('bc_update/' + scene_scope):
+                # supervised learning for policy
+                with tf.name_scope('policy_update/' + scene_scope):
                     self.loss_p[key] = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
                         labels=self.a_dist_old,
                         logits=self.logits[key],
@@ -128,7 +129,11 @@ class Generator(object):
                     self.train_p[key] = optimizer.minimize(
                         self.loss_p[key], global_step=self.global_step,
                         name='train_p', var_list=self.train_vars_p[key])
+                    a_old = tf.argmax(self.a_dist_old, axis=1)
+                    a_pred = tf.argmax(self.logits[key], axis=1)
+                    self.evals_p[key] = tf.reduce_mean(tf.cast(tf.equal(a_old, a_pred), tf.float32))
 
+                # supervised learning for value
                 with tf.name_scope('value_update/' + scene_scope):
                     self.loss_v[key] =\
                         0.5 * tf.reduce_mean(tf.square(self.target_value - self.values[key]), name='mse')
@@ -140,6 +145,7 @@ class Generator(object):
         return
 
     def run_value(self, session, state, target, scene_scope):
+        assert len(state) == len(target)
         key = rl.get_key([self.network_scope, scene_scope])
         v = session.run(self.values[key], feed_dict={
             self.s: state,
@@ -148,6 +154,7 @@ class Generator(object):
         return v
 
     def step_value(self, session, state, target, target_value, writer, scene_scope):
+        assert len(state) == len(target) == len(target_value)
         key = rl.get_key([self.network_scope, scene_scope])
         ops = (self.loss_v[key], self.summaries_v[key], self.train_v[key])
         loss, summary, _ = session.run(ops, feed_dict={
@@ -160,15 +167,30 @@ class Generator(object):
         return loss
 
     def run_policy(self, session, state, target, scene_scope):
+        assert len(state) == len(target)
         key = rl.get_key([self.network_scope, scene_scope])
         return session.run([self.actions[key], self.actions_dists[key]], feed_dict={
             self.s: state,
             self.t: target,
         })
 
-    def run_sur_obj_kl(self, session, state, target, action, a_dist, adv, scene_scope):
+    def step_policy(self, session, state, target, a_dist_target, writer, scene_scope):
+        assert len(state) == len(target) == len(a_dist_target)
         key = rl.get_key([self.network_scope, scene_scope])
+        ops = (self.evals_p[key], self.loss_p[key], self.summaries_p[key], self.train_p[key])
+        acc, loss, summary, _ = session.run(ops, feed_dict={
+            self.s: state,
+            self.t: target,
+            self.a_dist_old: a_dist_target,
+            self.lr: self.config.lr,
+        })
+        writer.add_summary(summary)
+        return acc, loss
+
+    # TRPO functions
+    def run_sur_obj_kl(self, session, state, target, action, a_dist, adv, scene_scope):
         assert len(state) == len(target) == len(action) == len(a_dist)
+        key = rl.get_key([self.network_scope, scene_scope])
         ret = session.run([self.sur_obj[key], self.kl[key]], feed_dict={
             self.s: state,
             self.t: target,
@@ -218,17 +240,6 @@ class Generator(object):
         })
         return
 
-    def step_policy_bc(self, session, state, target, a_dist_target, writer, scene_scope):
-        key = rl.get_key([self.network_scope, scene_scope])
-        ops = (self.loss_p[key], self.summaries_p[key], self.train_p[key])
-        loss, summary, _ = session.run(ops, feed_dict={
-            self.s: state,
-            self.t: target,
-            self.a_dist_old: a_dist_target,
-            self.lr: self.config.lr,
-        })
-        writer.add_summary(summary)
-        return loss
 
 class Network(object):
     """
@@ -269,8 +280,8 @@ def test_discriminator(session, model, config, scene_scope, summary_writer):
         print("%(i)d loss=%(loss)f rewards_e=%(rewards_e)f rewards_a=%(rewards_a)f" % locals())
 
 
-def test_policy_net(session, model, config, scene_scope, summary_writer):
-    print("testing policy network")
+def test_policy_trpo(session, model, config, scene_scope, summary_writer):
+    print("testing policy network for trpo update")
     batch_size = config.batch_size
     n_data = 3 * batch_size + 1
     s_a = np.random.rand(n_data, 2048, 4) - 0.5
@@ -314,8 +325,8 @@ def test_value_net(session, model, config, scene_scope, summary_writer):
         print("%(loss)f" % locals())
 
 
-def test_policy_net_bc(session, model, config, scene_scope, summary_writer):
-    print("testing policy network for BC")
+def test_policy_supervised(session, model, config, scene_scope, summary_writer):
+    print("testing policy network for supervised learning")
     batch_size = config.batch_size
     n_data = 3 * batch_size + 1
     s = np.random.rand(n_data, 2048, 4) - 0.5
@@ -323,8 +334,8 @@ def test_policy_net_bc(session, model, config, scene_scope, summary_writer):
     a_dist_target = np.random.rand(n_data, 4)
     max_iter = 50
     for _ in range(max_iter):
-        loss = model.g.step_policy_bc(session, s, t, a_dist_target, summary_writer, scene_scope)
-        print("%(loss)f" % locals())
+        acc, loss = model.g.step_policy(session, s, t, a_dist_target, summary_writer, scene_scope)
+        print("acc=%(acc)f loss=%(loss)f" % locals())
 
 
 def test_model():
@@ -339,7 +350,7 @@ def test_model():
 
     sess_config = tf.ConfigProto(log_device_placement=False,
                                  allow_soft_placement=True)
-    for test_fn in (test_policy_net_bc, test_policy_net, test_discriminator, test_value_net):
+    for test_fn in (test_policy_supervised, test_policy_trpo, test_discriminator, test_value_net):
         with tf.Session(config=sess_config) as session:
             summary_writer = tf.summary.FileWriter(train_logdir, session.graph)
             session.run(tf.global_variables_initializer())

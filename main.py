@@ -14,10 +14,10 @@ from config import Configuration
 from policy_network import PolicyNetwork
 from train_dagger import DaggerThread
 
-from gail.discriminator import Discriminator
-from gail.network import Generator, Network
-from gail.optimizer import GailThread
-from gail.bc import BCThread
+from imitation.discriminator import Discriminator
+from imitation.network import Generator, Network
+from imitation.gail import GailThread
+from imitation.bc import BCThread
 from utils import nn
 
 
