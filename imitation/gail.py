@@ -183,7 +183,7 @@ class GailThread(object):
         logging.info("loss_d=%(loss_d)f rewards_a=%(rewards_a)f rewards_e=%(rewards_e)f" % locals())
         return loss_d, rewards_a, rewards_e
 
-    def process(self, session, global_iter, writer):
+    def process(self, session, global_t, writer):
         obj, loss_v = float('-inf'), float('inf')
         loss_d, rewards_e, rewards_a = float('inf'), float('-inf'), float('-inf')
         # draw experience with current policy and expert policy
@@ -227,7 +227,7 @@ class GailThread(object):
             "stats/" + self.scene_scope + "-rewards_a": rewards_a,
             "stats/" + self.scene_scope + "-rewards_e": rewards_e,
         }
-        nn.add_summary(writer, summary_dicts, global_step=global_iter)
+        nn.add_summary(writer, summary_dicts, global_step=global_t)
         return n_total_a + n_total_e
 
     def evaluate(self, session, n_episodes):
@@ -242,7 +242,7 @@ def test_model():
     config.max_steps_per_e = 50
     scene_scopes = ('bathroom_02', 'bedroom_04', 'kitchen_02', 'living_room_08')
 
-    train_logdir = 'logdir'
+    train_logdir = 'logdir' + '/ut_gail'
     discriminator = Discriminator(config, scene_scopes=scene_scopes)
     generator = Generator(config, scene_scopes=scene_scopes)
     model = Network(config, generator, discriminator, scene_scopes=scene_scopes)

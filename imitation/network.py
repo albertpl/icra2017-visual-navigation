@@ -356,7 +356,7 @@ def test_model():
     config = Configuration()
     config.lr = 3e-5
     scene_scopes = ('scene1', 'scene2', 'scene3', 'scene4')
-    train_logdir = 'logdir_ut'
+    train_logdir = 'logdir/ut_network'
     discriminator = Discriminator(config, network_scope='discriminator', scene_scopes=scene_scopes)
     generator = Generator(config, network_scope='generator', scene_scopes=scene_scopes)
     model = Network(config, generator, discriminator, network_scope='network', scene_scopes=scene_scopes)

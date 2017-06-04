@@ -18,6 +18,7 @@ from imitation.discriminator import Discriminator
 from imitation.network import Generator, Network
 from imitation.gail import GailThread
 from imitation.bc import BCThread
+from imitation.dagger_mc import DaggerMCThread
 from utils import nn
 
 
@@ -30,6 +31,8 @@ def create_threads(config, model, network_scope, list_of_tasks):
         thread = GailThread
     elif args.model == 'bc':
         thread = BCThread
+    elif args.model == 'dagger_mc':
+        thread = DaggerMCThread
     else:
         raise ValueError("model not supported")
     return [thread(config, model, i, network_scope=network_scope, scene_scope=scene_scope, task_scope=task)
@@ -116,7 +119,7 @@ def train_models(configs):
         # build the model graph
         if args.model == 'dagger':
             model = PolicyNetwork(config, device=device, network_scope=network_scope, scene_scopes=scene_scopes)
-        elif args.model == 'gail' or args.model == 'bc':
+        elif args.model in ('gail', 'bc', 'dagger_mc'):
             discriminator = Discriminator(config, scene_scopes=scene_scopes)
             generator = Generator(config, scene_scopes=scene_scopes)
             model = Network(config, generator, discriminator, scene_scopes=scene_scopes)
@@ -192,7 +195,7 @@ def evaluate():
     if args.model == 'dagger':
         model = PolicyNetwork(
             config, device=device, network_scope=network_scope, scene_scopes=scene_scopes)
-    elif args.model == 'gail' or args.model == 'bc':
+    elif args.model in ('gail', 'bc', 'dagger_mc'):
         discriminator = Discriminator(config, scene_scopes=scene_scopes)
         generator = Generator(config, scene_scopes=scene_scopes)
         model = Network(config, generator, discriminator, scene_scopes=scene_scopes)
@@ -212,7 +215,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('-l', dest='log_level', default='info', help="logging level: {debug, info, error}")
     parser.add_argument('--model', dest='model', default=None,
-                        choices=('bc', 'gail', 'dagger'))
+                        choices=('bc', 'gail', 'dagger', 'dagger_mc'))
     parser.add_argument('--max_attempt', dest='max_attempt', type=int, default=1,
                         help='search hyper parameters')
     parser.add_argument('--logdir', dest='logdir', default='./logdir', help='logdir')
