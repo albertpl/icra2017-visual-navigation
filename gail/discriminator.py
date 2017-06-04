@@ -102,44 +102,26 @@ class Discriminator(object):
         assert len(s_e) == len(t_e) == len(a_e)
         n_data_a = len(s_a)
         n_data_e = len(s_e)
-        batch_size_a = self.config.batch_size
-        batch_size_e = int(n_data_e * batch_size_a/n_data_a)
         key = rl.get_key([self.network_scope, scene_scope])
-
         summary_op = self.summaries[key] if writer else tf.no_op()
         ops = [self.losses[key], self.train_steps[key], summary_op]
-
-        total_loss = 0.0
-        train_steps = int(math.ceil(n_data_a / batch_size_a))
-        for i in range(train_steps):
-            # generate indicies for the batch
-            start_idx_a = (i * batch_size_a) % n_data_a
-            end_idx_a = min(start_idx_a+batch_size_a, n_data_a)
-            actual_size_a = end_idx_a-start_idx_a
-            start_idx_e = (i * batch_size_e) % n_data_e
-            end_idx_e = min(start_idx_e+batch_size_e, n_data_e)
-            actual_size_e = end_idx_e-start_idx_e
-            feed_dict = {
-                self.s_a: s_a[start_idx_a:end_idx_a],
-                self.t_a: t_a[start_idx_a:end_idx_a],
-                self.s_e: s_e[start_idx_e:end_idx_e],
-                self.t_e: t_e[start_idx_e:end_idx_e],
-                self.a_e: a_e[start_idx_e:end_idx_e],
-                self.a_a: a_a[start_idx_a:end_idx_a],
-                self.lr: self.config.lr,
-                self.n_a: actual_size_a,
-                self.n_e: actual_size_e,
-            }
-            # get batch size
-            loss, _, summary = session.run(ops, feed_dict=feed_dict)
-
-            # aggregate performance stats
-            total_loss += loss * actual_size_a
-            if writer:
-                logging.info("writing summary")
-                writer.add_summary(summary, global_step=self.get_global_step())
-        total_loss /= n_data_a
-        return total_loss
+        # generate indicies for the batch
+        feed_dict = {
+            self.s_a: s_a,
+            self.t_a: t_a,
+            self.s_e: s_e,
+            self.t_e: t_e,
+            self.a_e: a_e,
+            self.a_a: a_a,
+            self.lr: self.config.lr,
+            self.n_a: n_data_a,
+            self.n_e: n_data_e,
+        }
+        # get batch size
+        loss, _, summary = session.run(ops, feed_dict=feed_dict)
+        if writer:
+            writer.add_summary(summary, global_step=self.get_global_step())
+        return loss
 
     def run_reward(self, session, scene_scope, s_a, t_a, a_a):
         assert len(s_a) == len(t_a) == len(a_a)

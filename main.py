@@ -17,12 +17,21 @@ from train_dagger import DaggerThread
 from gail.discriminator import Discriminator
 from gail.network import Generator, Network
 from gail.optimizer import GailThread
+from gail.bc import BCThread
+from utils import nn
 
 
 def create_threads(config, model, network_scope, list_of_tasks):
     scene_scopes = list_of_tasks.keys()
     branches = [(scene, task) for scene in scene_scopes for task in list_of_tasks[scene]]
-    thread = DaggerThread if False else GailThread
+    if args.model == 'dagger':
+        thread = DaggerThread
+    elif args.model == 'gail':
+        thread = GailThread
+    elif args.model == 'bc':
+        thread = BCThread
+    else:
+        raise ValueError("model not supported")
     return [thread(config, model, i, network_scope=network_scope, scene_scope=scene_scope, task_scope=task)
             for i, (scene_scope, task) in enumerate(branches)]
 
@@ -36,14 +45,19 @@ def anneal_lr(lr_config, global_t):
     return lr_config * lr_schedules[-1][1]
 
 
+def get_logdir_str(config):
+    keys = ('min_traj_per_train', 'max_global_time_step', 'lsr_epsilon', 'gamma', 'lam')
+    return '-'.join([p+'_'+str(getattr(config, p)) for p in keys if hasattr(config, p)])
+
+
 def train_model(model, session, config, threads, logdir, weight_root):
     if logdir:
         if not os.path.exists(logdir):
             os.makedirs(logdir)
         test_n = len(list(n for n in os.listdir(logdir) if n.startswith('t')))
-        train_logdir = logdir + '/t' + str(test_n + 1) + '_lr-' + str(config.lr)
-        summary_writer = tf.summary.FileWriter(train_logdir, session.graph)
+        train_logdir = logdir + '/t' + str(test_n + 1) + '-' + get_logdir_str(config)
         logging.info("writing logs to %(train_logdir)s" % locals())
+        summary_writer = tf.summary.FileWriter(train_logdir, session.graph)
     else:
         summary_writer = None
 
@@ -51,7 +65,7 @@ def train_model(model, session, config, threads, logdir, weight_root):
         if not os.path.exists(weight_root):
             os.makedirs(weight_root)
         weight_path = weight_root + '/modelv1'
-        logging.info("writing weights to %(weight_path)s" % locals())
+        logging.info("loading from/writing weights to %(weight_path)s" % locals())
         saver = tf.train.Saver()
         checkpoint = tf.train.get_checkpoint_state(weight_root)
     else:
@@ -99,12 +113,14 @@ def train_models(configs):
         config = Configuration(**config_dict)
         print("training with config=%s" % (str(config)))
         # build the model graph
-        if False:
+        if args.model == 'dagger':
             model = PolicyNetwork(config, device=device, network_scope=network_scope, scene_scopes=scene_scopes)
-        else:
+        elif args.model == 'gail' or args.model == 'bc':
             discriminator = Discriminator(config, scene_scopes=scene_scopes)
             generator = Generator(config, scene_scopes=scene_scopes)
             model = Network(config, generator, discriminator, scene_scopes=scene_scopes)
+        else:
+            raise ValueError("model not supported")
         sess_config = tf.ConfigProto(log_device_placement=False, allow_soft_placement=True)
         threads = create_threads(config, model, network_scope, list_of_tasks)
         with tf.Session(config=sess_config) as session:
@@ -153,7 +169,7 @@ def evaluate_model(session, config, model, summary_writer=None):
                 "stats/" + scene + "-steps": float(np.mean(scene_stats[scene])),
                 "stats/" + scene + "-accuracy": float(np.mean(acc_stats[scene])),
             }
-            thread.add_summary(summary_writer, summary_values)
+            nn.add_summary(summary_writer, summary_values)
     logging.info("Average_trajectory_length per scene (steps):")
     for scene in scene_stats:
         logging.info("%s: agent=%f (acc=%.2f) expert=%f" %
@@ -172,10 +188,11 @@ def evaluate():
     weight_root = args.weight_root
     config = Configuration(**vars(args))
     print("evaluating with config=%s" % (str(config)))
-    model = PolicyNetwork(config,
-                          device=device,
-                          network_scope=network_scope,
-                          scene_scopes=scene_scopes)
+    if args.model == 'dagger':
+        model = PolicyNetwork(
+            config, device=device, network_scope=network_scope, scene_scopes=scene_scopes)
+    else:
+        raise ValueError("model not supported")
     sess_config = tf.ConfigProto(log_device_placement=False, allow_soft_placement=True)
     with tf.Session(config=sess_config) as session:
         weight_path = weight_root + '/modelv1'
@@ -189,6 +206,8 @@ def evaluate():
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('-l', dest='log_level', default='info', help="logging level: {debug, info, error}")
+    parser.add_argument('--model', dest='model', default=None,
+                        choices=('bc', 'gail', 'dagger'))
     parser.add_argument('--max_attempt', dest='max_attempt', type=int, default=1,
                         help='search hyper parameters')
     parser.add_argument('--logdir', dest='logdir', default='./logdir', help='logdir')

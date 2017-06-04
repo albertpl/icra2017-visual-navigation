@@ -56,13 +56,13 @@ class GailThread(object):
             a_dists.append(a_dist)
             self.env.step(a)
             self.env.update()
+            episode_length += 1
             # ad-hoc reward for navigation
             reward = 10.0 if self.env.terminal else -0.01
             rewards.append(reward)
-            terminal = True if episode_length > self.config.max_steps_per_e else self.env.terminal
+            terminal = True if episode_length >= self.config.max_steps_per_e else self.env.terminal
             if terminal:
                 break
-            episode_length += 1
         return Trajectory(np.array(states), np.array(a_dists), np.array(actions), np.array(rewards))
 
     def sample_trajs(self, session):
@@ -84,12 +84,11 @@ class GailThread(object):
         n_total = len(trajs.obs.stacked)
         traj_lens = trajs.r.lengths
         t = [self.env.s_target] * n_total
-        rewards_stack = self.local_network.run_reward(session, self.scene_scope,
+        rewards_stack = self.local_network.d.run_reward(session, self.scene_scope,
                                                       trajs.obs.stacked, t, trajs.actions.stacked)
         assert rewards_stack.shape == (trajs.obs.stacked.shape[0],)
         # convert back to jagged array
         r = RaggedArray(rewards_stack, lengths=trajs.r.lengths)
-
         B, maxT = len(traj_lens), traj_lens.max()
 
         # Compute Q values
@@ -141,25 +140,30 @@ class GailThread(object):
                                                             trajs.actions.stacked, trajs.a_dists.stacked,
                                                             adv.stacked,
                                                             self.scene_scope)
-        # compute hessian with CG
-        step_dir = rl.conjugate_gradient(hvp, -obj_grads)
-        shs = .5 * step_dir.dot(hvp(step_dir))
-        assert shs > 0
+        # TODO: DEBUG
+        if True:
+            theta += obj_grads
+            print("adv norm =%.2f obj_grad norm=%.2f" % (np.sum(adv.stacked ** 2), float(np.sum(obj_grads**2))))
+        else:
+            # compute hessian with CG
+            step_dir = rl.conjugate_gradient(hvp, -obj_grads)
+            shs = .5 * step_dir.dot(hvp(step_dir))
+            assert shs > 0
 
-        lm = np.sqrt(shs / self.config.policy_max_kl)
-        full_step = step_dir / lm
-        neg_gdot_step_dir = -obj_grads.dot(step_dir)
+            lm = np.sqrt(shs / self.config.policy_max_kl)
+            full_step = step_dir / lm
+            neg_gdot_step_dir = -obj_grads.dot(step_dir)
 
-        def compute_obj(th):
-            self.local_network.g.set_vars(session, th, self.scene_scope)
-            return self.local_network.g.run_sur_obj_kl(
-                session,
-                trajs.obs.stacked, t,
-                trajs.actions.stacked, trajs.a_dists.stacked,
-                adv.stacked,
-                self.scene_scope
-            )[0]
-        theta = rl.linesearch(compute_obj, theta, full_step, neg_gdot_step_dir/lm)
+            def compute_obj(th):
+                self.local_network.g.set_vars(session, th, self.scene_scope)
+                return self.local_network.g.run_sur_obj_kl(
+                    session,
+                    trajs.obs.stacked, t,
+                    trajs.actions.stacked, trajs.a_dists.stacked,
+                    adv.stacked,
+                    self.scene_scope
+                )[0]
+            theta = rl.linesearch(compute_obj, theta, full_step, neg_gdot_step_dir/lm)
         self.local_network.g.set_vars(session, theta, self.scene_scope)
         obj, kl = self.local_network.g.run_sur_obj_kl(session,
                                                       trajs.obs.stacked, t,
@@ -196,7 +200,8 @@ class GailThread(object):
         return loss_d, rewards_a, rewards_e
 
     def process(self, session, global_iter, writer):
-        obj, loss_v = 0.0, float('inf')
+        obj, loss_v = float('-inf'), float('inf')
+        loss_d, rewards_e, rewards_a = float('inf'), float('-inf'), float('-inf')
         # draw experience with current policy and expert policy
         logging.debug("sampling ...")
         trajs_a, trajs_e = self.sample_trajs(session)
@@ -208,11 +213,13 @@ class GailThread(object):
         t = [self.env.s_target] * n_total
 
         # update reward function (discriminator)
-        loss_d, rewards_a, rewards_e = self.update_discriminator(
-            session, trajs_a, trajs_e, writer, t)
+        d_cycle = 0
+        for _ in range(d_cycle):
+            loss_d, rewards_a, rewards_e = self.update_discriminator(
+                session, trajs_a, trajs_e, writer, t)
 
         # update generator network
-        g_cycle = 0
+        g_cycle = 1
         for _ in range(g_cycle):
             # compute Q out of discriminator's reward function and then V out of generator.
             # then advantage = Q - V
@@ -223,12 +230,13 @@ class GailThread(object):
             obj, kl = self.update_policy(session, trajs_a, adv, t)
 
             # update value network via MSE
-            loss_v = self.update_value(session, trajs_a, q, writer, t)
+            #loss_v = self.update_value(session, trajs_a, q, writer, t)
 
         # add summaries
         summary_dicts = {
             "stats/" + self.scene_scope + "-steps_agent": step_a,
             "stats/" + self.scene_scope + "-steps_expert": step_e,
+            "stats/" + self.scene_scope + "-sur_obj": obj,
             "stats/" + self.scene_scope + "-sur_obj": obj,
             "stats/" + self.scene_scope + "-loss_value": loss_v,
             "stats/" + self.scene_scope + "-loss_d": loss_d,

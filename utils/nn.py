@@ -64,7 +64,7 @@ def var_shape(x):
 
 
 def numel(x):
-    return np.prod(var_shape(x))
+    return np.prod(x.get_shape().as_list())
 
 
 def flat_grad(loss, var_list):
