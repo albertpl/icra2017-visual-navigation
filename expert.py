@@ -83,7 +83,7 @@ def test_scene(dump_file, test_cnt):
         task_list = np.random.choice(list(range(env.n_locations)), test_cnt)
     else:
         task_list = TASK_LIST[scene]
-    logging.info("testing scene %(scene)s task_list=%(task_list)s from dump file %(dump_file)s" % locals())
+    logging.info("loading scene %(scene)s from %(dump_file)s" % locals())
 
     for t in task_list:
         target = int(t)
@@ -91,6 +91,7 @@ def test_scene(dump_file, test_cnt):
             'h5_file_path': dump_file,
             'terminal_state_id': target,
         })
+        logging.info("transition_graph shape %s" % str(env.transition_graph.shape))
         start = time.time()
         expert = Expert(env)
         logging.debug("building policy takes %f s" % (time.time()-start))

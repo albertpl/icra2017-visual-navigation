@@ -168,7 +168,7 @@ def evaluate_model(session, config, model, summary_writer=None, global_step=0):
         scene_stats[scene].append(lengths)
         expert_stats[scene].append(exp_lengths)
         acc_stats[scene].append(accuracies)
-    logging.info("Average_trajectory_length per scene (steps):")
+    logging.info("Average_trajectory_length per scene @%d (steps):" % global_step)
     for scene in scene_stats:
         logging.info("%s: agent=%f (acc=%.2f) expert=%f" %
                      (scene,

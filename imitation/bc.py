@@ -79,7 +79,7 @@ class BCThread(object):
         # evaluate with agent policy
         trajs = self.sample_trajs_a(session, self.config.num_eval_episodes)
         step_a = float(np.mean(trajs.obs.lengths))
-        logging.info("evaluating agent step=%(step_a)f" % locals())
+        logging.debug("evaluating agent step=%(step_a)f" % locals())
 
         # add summaries
         summary_dicts = {
