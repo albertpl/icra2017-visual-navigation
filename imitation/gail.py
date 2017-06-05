@@ -125,8 +125,9 @@ class GailThread(object):
                                                             adv.stacked,
                                                             self.scene_scope)
         # TODO: DEBUG
-        logging.info("adv norm =%.2f obj_grad norm=%.2f" % (np.sum(adv.stacked ** 2), float(np.sum(obj_grads**2))))
-        if False:
+        obj_grad_norm = np.sum(obj_grads**2)
+        if np.isclose(obj_grad_norm, 0):
+            logging.info("adv norm =%.2f obj_grad norm=%.2f" % (np.sum(adv.stacked ** 2), obj_grad_norm))
             theta += obj_grads
         else:
             # compute hessian with CG

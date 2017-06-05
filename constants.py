@@ -35,4 +35,7 @@ if True:
       'living_room_08' : ['92', '135', '193', '228', '254']
     }
 else:
-  TASK_LIST = {'bathroom_02': ['26']}
+    # TASK_LIST = {'bedroom_04': ['134']}
+    # TASK_LIST = {'bathroom_02': ['26']}
+    # TASK_LIST = {'living_room_08': ['92']}
+    TASK_LIST = {'kitchen_02': ['90']}

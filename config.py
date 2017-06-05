@@ -13,7 +13,7 @@ class Configuration(object):
     gamma = 0.95  # discount factor
     local_t_max = LOCAL_T_MAX
     lr = 4.0e-4
-    lr_vn = 2.0e-4   # lr for value network
+    lr_vn = 1.0e-5   # lr for value network
     lr_decay_step = 1000  # decay by 0.9
     lsr_epsilon = 0.1
     relu_leakiness = 0.01  # Leaky Relu
