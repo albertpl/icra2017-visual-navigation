@@ -49,7 +49,7 @@ def anneal_lr(lr_config, global_t):
 
 
 def get_logdir_str(config):
-    keys = ('min_traj_per_train', 'max_global_time_step', 'lsr_epsilon', 'gamma', 'lam')
+    keys = ('min_traj_per_train', 'max_global_time_step', 'lsr_epsilon', 'gamma', 'lam', 'lr')
     return '-'.join([p+'_'+str(getattr(config, p)) for p in keys if hasattr(config, p)])
 
 
@@ -58,7 +58,7 @@ def train_model(model, session, config, threads, logdir, weight_root):
         if not os.path.exists(logdir):
             os.makedirs(logdir)
         test_n = len(list(n for n in os.listdir(logdir) if n.startswith('t')))
-        train_logdir = logdir + '/t' + str(test_n + 1) + '-' + get_logdir_str(config)
+        train_logdir = logdir + '/t' + str(test_n + 1) + '-' + args.model + '-' + get_logdir_str(config)
         logging.info("writing logs to %(train_logdir)s" % locals())
         summary_writer = tf.summary.FileWriter(train_logdir, session.graph)
     else:

@@ -27,7 +27,7 @@ NUM_EVAL_EPISODES = 100 # number of episodes for evaluation
 
 TASK_TYPE = 'navigation' # no need to change
 # keys are scene names, and values are a list of location ids (navigation targets)
-if False:
+if True:
     TASK_LIST = {
       'bathroom_02'    : ['26', '37', '43', '53', '69'],
       'bedroom_04'     : ['134', '264', '320', '384', '387'],

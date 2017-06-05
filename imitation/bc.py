@@ -84,7 +84,6 @@ class BCThread(object):
         # add summaries
         summary_dicts = {
             "stats/" + self.scene_scope + "-steps_agent": step_a,
-            "stats/" + self.scene_scope + "-steps_expert": step_e,
             "stats/" + self.scene_scope + "-loss_p": loss,
             "stats/" + self.scene_scope + "-acc_p": acc,
         }

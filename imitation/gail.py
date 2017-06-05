@@ -219,7 +219,6 @@ class GailThread(object):
         # add summaries
         summary_dicts = {
             "stats/" + self.scene_scope + "-steps_agent": step_a,
-            "stats/" + self.scene_scope + "-steps_expert": step_e,
             "stats/" + self.scene_scope + "-sur_obj": obj,
             "stats/" + self.scene_scope + "-sur_obj": obj,
             "stats/" + self.scene_scope + "-loss_value": loss_v,
