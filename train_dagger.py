@@ -14,6 +14,15 @@ from utils import rl
 from utils import nn
 
 
+def anneal_lr(lr_config, global_t):
+    """ heuristically update lr"""
+    lr_schedules = ((2e3, 1.0), (1e4, 0.5), (5e4, 0.5**2), (1e5, 0.5**3), (5e5, 0.5**4), (1e6, 0.5**5))
+    for step, rate in lr_schedules:
+        if global_t < step:
+            return lr_config * rate
+    return lr_config * lr_schedules[-1][1]
+
+
 class DaggerThread(object):
     def __init__(self,
                  config,
@@ -24,6 +33,7 @@ class DaggerThread(object):
                  task_scope="task"):
         self.thread_index = thread_index
         self.config = config
+        self.lr_config = config.lr
         self.network_scope = network_scope
         self.scene_scope = scene_scope
         self.task_scope = task_scope
@@ -66,6 +76,7 @@ class DaggerThread(object):
 
     def process(self, sess, global_t, summary_writer):
         start_local_t = self.local_t
+        self.config.lr = anneal_lr(self.lr_config, global_t)
         # draw experience with current policy or expert policy
         terminal = False
         for i in range(self.config.local_t_max):

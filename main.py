@@ -39,15 +39,6 @@ def create_threads(config, model, network_scope, list_of_tasks):
             for i, (scene_scope, task) in enumerate(branches)]
 
 
-def anneal_lr(lr_config, global_t):
-    """ heuristically update lr"""
-    lr_schedules = ((2e3, 1.0), (1e4, 0.5), (5e4, 0.5**2), (1e5, 0.5**3), (5e5, 0.5**4), (1e6, 0.5**5))
-    for step, rate in lr_schedules:
-        if global_t < step:
-            return lr_config * rate
-    return lr_config * lr_schedules[-1][1]
-
-
 def get_logdir_str(config):
     keys = ('min_traj_per_train', 'max_global_time_step', 'lsr_epsilon', 'gamma', 'lam', 'lr')
     return '-'.join([p+'_'+str(getattr(config, p)) for p in keys if hasattr(config, p)])
@@ -95,7 +86,6 @@ def train_model(model, session, config, threads, logdir, weight_root):
                 saver.save(session, weight_path)
             if iteration % config.steps_per_eval == (config.steps_per_eval-1):
                 evaluate_model(session, config, thread.local_network, summary_writer, global_t)
-            thread.local_network.config.lr = anneal_lr(lr_config, global_t)
             logging.debug("lr=%f" % thread.local_network.config.lr)
     duration = time.time() - train_start
     logging.info("global_t=%d, total_iterations=%d takes %0.2f s (%0.2f)" %
