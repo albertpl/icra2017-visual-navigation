@@ -69,7 +69,7 @@ class GailThread(object):
         traj_lens = trajs.r.lengths
         t = [self.env.s_target] * n_total
         rewards_stack = self.local_network.d.run_reward(session, self.scene_scope,
-                                                      trajs.obs.stacked, t, trajs.actions.stacked)
+                                                        trajs.obs.stacked, t, trajs.actions.stacked)
         assert rewards_stack.shape == (trajs.obs.stacked.shape[0],)
         # convert back to jagged array
         r = RaggedArray(rewards_stack, lengths=trajs.r.lengths)
@@ -119,7 +119,7 @@ class GailThread(object):
         theta = self.local_network.g.get_vars(session, self.scene_scope)
 
         # compute grads of obj
-        _, obj_grads, _ = self.local_network.g.run_sur_obj_kl_with_grads(session,
+        obj_old, obj_grads, kl = self.local_network.g.run_sur_obj_kl_with_grads(session,
                                                             trajs.obs.stacked, t,
                                                             trajs.actions.stacked, trajs.a_dists.stacked,
                                                             adv.stacked,
@@ -129,6 +129,7 @@ class GailThread(object):
         if np.isclose(obj_grad_norm, 0):
             logging.info("adv norm =%.2f obj_grad norm=%.2f" % (np.sum(adv.stacked ** 2), obj_grad_norm))
             theta += obj_grads
+            return obj_old, kl
         else:
             # compute hessian with CG
             step_dir = rl.conjugate_gradient(hvp, -obj_grads)
@@ -156,7 +157,8 @@ class GailThread(object):
                                                       trajs.a_dists.stacked,
                                                       adv.stacked,
                                                       self.scene_scope)
-        logging.info("update_policy: obj=%(obj)f kl=%(kl)f" % locals())
+        logging.info("update_policy: obj=%(obj)f obj_old=%(obj_old)f kl=%(kl)f" % locals())
+        assert obj_old >= obj, "sur_obj is not decreasing!"
         return obj, kl
 
     def update_value(self, session, trajs, q, writer, t):
@@ -188,23 +190,22 @@ class GailThread(object):
         obj, loss_v = float('-inf'), float('inf')
         loss_d, rewards_e, rewards_a = float('inf'), float('-inf'), float('-inf')
         # draw experience with current policy and expert policy
-        logging.debug("sampling ...")
         trajs_a, trajs_e = self.sample_trajs_a(session, self.config.min_traj_per_train), \
                            self.sample_trajs_e(session, self.config.min_traj_per_train)
         n_total_a, step_a = len(trajs_a.obs.stacked), float(np.mean(trajs_a.obs.lengths))
         n_total_e, step_e = len(trajs_e.obs.stacked), float(np.mean(trajs_e.obs.lengths))
-        logging.info("sampled agents %(n_total_a)d pairs (step=%(step_a)f) and "
-                     "experts %(n_total_e)d pairs (step=%(step_e)f)" % locals())
+        logging.debug("sampled agents %(n_total_a)d pairs (step=%(step_a)f) and "
+                      "experts %(n_total_e)d pairs (step=%(step_e)f)" % locals())
         t = [self.env.s_target] * n_total_a
 
         # update reward function (discriminator)
-        d_cycle = 1
+        d_cycle = self.config.gan_d_cycle
         for _ in range(d_cycle):
             loss_d, rewards_a, rewards_e = self.update_discriminator(
                 session, trajs_a, trajs_e, writer, t)
 
         # update generator network
-        g_cycle = 1
+        g_cycle = self.config.gan_g_cycle
         for _ in range(g_cycle):
             # compute Q out of discriminator's reward function and then V out of generator.
             # then advantage = Q - V
@@ -220,7 +221,6 @@ class GailThread(object):
         # add summaries
         summary_dicts = {
             "stats/" + self.scene_scope + "-steps_agent": step_a,
-            "stats/" + self.scene_scope + "-sur_obj": obj,
             "stats/" + self.scene_scope + "-sur_obj": obj,
             "stats/" + self.scene_scope + "-loss_value": loss_v,
             "stats/" + self.scene_scope + "-loss_d": loss_d,

@@ -62,8 +62,10 @@ class Generator(object):
                     # scene-specific adaptation layer, disable bn to make it easier for optimizer op dependency
                     x = tf.layers.dense(fc2_out, 512, name='fc3', activation=nn.leaky_relu,
                                         kernel_initializer=layers.variance_scaling_initializer())
-                    self.fc3[key] = x
                     tf.logging.debug("%s-fc3: shape %s", key, x.get_shape())
+                    self.fc3[key] = x
+                    x = tf.layers.dense(x, 512, name='fc4', activation=nn.leaky_relu,
+                                        kernel_initializer=layers.variance_scaling_initializer())
                     scene_variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=key)
 
                     # policy output layer
@@ -87,7 +89,7 @@ class Generator(object):
                         self.values[key] = tf.reshape(values, (-1,))
                         tf.logging.debug("%s-values: shape %s", key, self.values[key].get_shape())
                         value_variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=scope.name)
-                        self.train_vars_v[key] = shared_variables + scene_variables + value_variables
+                        self.train_vars_v[key] = value_variables
                         tf.logging.debug('scene %s value variables %s ', key, self.train_vars_v[key])
 
                     # TRPO ops
@@ -195,7 +197,6 @@ class Generator(object):
             self.s: state,
             self.t: target,
             self.a_dist_old: a_dist_target,
-            self.lr: self.config.lr,
         })
         return acc, loss
 

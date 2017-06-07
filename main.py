@@ -40,7 +40,7 @@ def create_threads(config, model, network_scope, list_of_tasks):
 
 
 def get_logdir_str(config):
-    keys = ('min_traj_per_train', 'max_global_time_step', 'lsr_epsilon', 'gamma', 'lam', 'lr')
+    keys = ('min_traj_per_train', 'max_iteration', 'policy_max_kl', 'lr', 'lr_vn', 'gan_d_cycle')
     return '-'.join([p+'_'+str(getattr(config, p)) for p in keys if hasattr(config, p)])
 
 
@@ -90,7 +90,7 @@ def train_model(model, session, config, threads, logdir, weight_root):
     duration = time.time() - train_start
     logging.info("global_t=%d, total_iterations=%d takes %0.2f s (%0.2f)" %
                  (global_t, iteration, duration/iteration, duration))
-    if saver:
+    if saver and not args.not_save_last:
         logging.info("Saving checkpoint at last")
         saver.save(session, weight_path)
     if summary_writer:
@@ -131,7 +131,8 @@ def search():
     config_dict = vars(args)
     for _ in range(args.max_attempt):
         # config_dict['lr'] = 10 ** np.random.uniform(-5, -3, size=1)[0]
-        config_dict['lr'] = np.random.uniform(3e-4, 4e-4)
+        config_dict['lr_vn'] = np.random.uniform(3e-4, 4e-4)
+        config_dict['policy_max_kl'] = np.random.choice(np.exp(np.random.uniform(-3, -2)), size=1)[0]
         train_models([config_dict])
 
 
@@ -210,6 +211,8 @@ if __name__ == '__main__':
                         help='search hyper parameters')
     parser.add_argument('--logdir', dest='logdir', default='./logdir', help='logdir')
     parser.add_argument('--weight_root', dest='weight_root', default=None, help='weights')
+    parser.add_argument('--not_save_last', dest='not_save_last', default=False, action='store_true',
+                        help='not save at last')
     for k in [a for a in dir(Configuration()) if not isinstance(a, Callable) and not a.startswith("__")]:
         parser.add_argument('--'+k, dest=k)
     subparser = parser.add_subparsers(dest='command', title='sub_commands', description='valid commands')

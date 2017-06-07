@@ -35,10 +35,10 @@ def get_key(scopes):
 
 
 def discount(r_N_T_D, gamma):
-    '''
+    """
     Computes Q values from rewards.
     q_N_T_D[i,t,:] == r_N_T_D[i,t,:] + gamma*r_N_T_D[i,t+1,:] + gamma^2*r_N_T_D[i,t+2,:] + ...
-    '''
+    """
     assert r_N_T_D.ndim == 2 or r_N_T_D.ndim == 3
     input_ndim = r_N_T_D.ndim
     if r_N_T_D.ndim == 2: r_N_T_D = r_N_T_D[...,None]
