@@ -84,7 +84,7 @@ class Generator(object):
 
                     # value output layer
                     with tf.variable_scope('value') as scope:
-                        x = tf.layers.dense(self.fc3[key], 256, name='fc3', activation=nn.leaky_relu,
+                        x = tf.layers.dense(self.fc3[key], 256, name='value_fc', activation=nn.leaky_relu,
                                             kernel_initializer=layers.variance_scaling_initializer())
                         values = tf.layers.dense(x, 1, name='value_logits', activation=None,
                                                  kernel_initializer=layers.variance_scaling_initializer())

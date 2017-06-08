@@ -31,6 +31,7 @@ class Configuration(object):
     reg = 0.04   # regularization for weight
     steps_per_save = 1e+3
     steps_per_eval = 1e+2
+    wgan_lam = 10.0   # lambda for WANG-GP loss
 
     def __init__(self, **kwargs):
         for key in [a for a in dir(self) if not isinstance(a, collections.Callable) and not a.startswith("__")]:

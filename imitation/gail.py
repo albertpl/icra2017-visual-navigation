@@ -157,7 +157,7 @@ class GailThread(object):
                                                       trajs.a_dists.stacked,
                                                       adv.stacked,
                                                       self.scene_scope)
-        logging.info("update_policy: obj=%(obj)f obj_old=%(obj_old)f kl=%(kl)f" % locals())
+        logging.debug("update_policy: obj=%(obj)f obj_old=%(obj_old)f kl=%(kl)f" % locals())
         assert obj_old >= obj, "sur_obj is not decreasing!"
         return obj, kl
 
@@ -168,7 +168,7 @@ class GailThread(object):
                                                q.stacked,
                                                writer,
                                                self.scene_scope)
-        logging.info("update_value: loss=%(loss)f" % locals())
+        logging.debug("update_value: loss=%(loss)f" % locals())
         return loss
 
     def update_discriminator(self, session, trajs_a, trajs_e, writer, t_a):
@@ -183,7 +183,7 @@ class GailThread(object):
             session, self.scene_scope, trajs_a.obs.stacked, t_a, trajs_a.actions.stacked)))
         rewards_e = float(np.mean(self.local_network.d.run_reward(
             session, self.scene_scope, trajs_e.obs.stacked, t_e, trajs_e.actions.stacked)))
-        logging.info("loss_d=%(loss_d)f rewards_a=%(rewards_a)f rewards_e=%(rewards_e)f" % locals())
+        logging.debug("loss_d=%(loss_d)f rewards_a=%(rewards_a)f rewards_e=%(rewards_e)f" % locals())
         return loss_d, rewards_a, rewards_e
 
     def process(self, session, global_t, writer):
