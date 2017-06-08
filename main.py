@@ -40,7 +40,8 @@ def create_threads(config, model, network_scope, list_of_tasks):
 
 
 def get_logdir_str(config):
-    keys = ('min_traj_per_train', 'max_iteration', 'policy_max_kl', 'lr', 'lr_vn', 'gan_d_cycle')
+    keys = ('min_traj_per_train', 'max_iteration', 'policy_max_kl', 'lr', 'lr_vn', 'gan_d_cycle',
+            'gan_v_cycle')
     return '-'.join([p+'_'+str(getattr(config, p)) for p in keys if hasattr(config, p)])
 
 
@@ -130,9 +131,12 @@ def train():
 def search():
     config_dict = vars(args)
     for _ in range(args.max_attempt):
-        # config_dict['lr'] = 10 ** np.random.uniform(-5, -3, size=1)[0]
-        config_dict['lr_vn'] = np.random.uniform(3e-4, 4e-4)
-        config_dict['policy_max_kl'] = np.random.choice(np.exp(np.random.uniform(-3, -2)), size=1)[0]
+        # config_dict['lr'] = 10 ** np.random.uniform(-8, -7)
+        # config_dict['lr_vn'] = 10 ** np.random.uniform(-3, -1)
+        config_dict['lr'] = np.random.uniform(1e-7, 5e-7)
+        config_dict['lr_vn'] = np.random.uniform(5.0e-3, 9.0e-3)
+        config_dict['policy_max_kl'] = np.random.uniform(1e-3, 3e-3)
+        config_dict['gan_v_cycle'] = np.random.choice([1, 2, 3])
         train_models([config_dict])
 
 

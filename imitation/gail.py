@@ -205,17 +205,17 @@ class GailThread(object):
                 session, trajs_a, trajs_e, writer, t)
 
         # update generator network
-        g_cycle = self.config.gan_g_cycle
-        for _ in range(g_cycle):
-            # compute Q out of discriminator's reward function and then V out of generator.
-            # then advantage = Q - V
-            logging.debug("computing advantage")
-            adv, q, vfunc_r2, simplev_r2 = self.compute_advantage(session, trajs_a)
+        # compute Q out of discriminator's reward function and then V out of generator.
+        # then advantage = Q - V
+        logging.debug("computing advantage")
+        adv, q, vfunc_r2, simplev_r2 = self.compute_advantage(session, trajs_a)
 
-            # update policy network via TRPO
-            obj, kl = self.update_policy(session, trajs_a, adv, t)
+        # update policy network via TRPO
+        obj, kl = self.update_policy(session, trajs_a, adv, t)
 
-            # update value network via MSE
+        # update value network via MSE
+        v_cycle = self.config.gan_v_cycle
+        for _ in range(v_cycle):
             loss_v = self.update_value(session, trajs_a, q, writer, t)
 
         # add summaries

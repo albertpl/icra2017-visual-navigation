@@ -31,10 +31,10 @@ class Discriminator(object):
         """
         logits, rewards, train_vars = {}, {}, {}
         with tf.device(self._device):
-            fc1_out = nn.siamese(s, t, 512, name='fc1')
+            fc1_out = nn.siamese(s, t, 128, name='fc1')
             tf.logging.debug("%s fc1: shape %s", self.network_scope, fc1_out.get_shape())
             # shared fusion layer
-            fc2_out = tf.layers.dense(fc1_out, 512, name='fc2', activation=nn.leaky_relu,
+            fc2_out = tf.layers.dense(fc1_out, 128, name='fc2', activation=nn.leaky_relu,
                                       kernel_initializer=layers.variance_scaling_initializer())
             tf.logging.debug("%s fc2: shape %s", self.network_scope, fc2_out.get_shape())
             shared_variables = tf.trainable_variables()
@@ -44,7 +44,7 @@ class Discriminator(object):
                 key = rl.get_key([self.network_scope, scene_scope])
                 with tf.variable_scope(scene_scope):
                     # scene-specific adaptation layer, disable bn to make it easier for optimizer op dependency
-                    x = tf.layers.dense(fc2_out, 512, name='fc3', activation=nn.leaky_relu,
+                    x = tf.layers.dense(fc2_out, 128, name='fc3', activation=nn.leaky_relu,
                                         kernel_initializer=layers.variance_scaling_initializer())
                     tf.logging.debug("%s-fc3: shape %s", key, x.get_shape())
                     # policy output layer

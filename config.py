@@ -12,7 +12,7 @@ class Configuration(object):
     early_stopping = 999
     gamma = 0.95  # discount factor
     gan_d_cycle = 1  # cycle of discriminator in GAIL
-    gan_g_cycle = 1  # cycle of generator in GAIL
+    gan_v_cycle = 1  # cycle of value function in GAIL
     local_t_max = LOCAL_T_MAX
     lr = 4.0e-4
     lr_vn = 1.0e-5   # lr for value network
