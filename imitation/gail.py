@@ -59,8 +59,9 @@ class GailThread(object):
 
     def sample_trajs_a(self, session, n_traj):
         def get_act_fn_a(s, t):
-            a, a_dist = self.local_network.g.run_policy(session, [s], [t], self.scene_scope)
-            return a[0], a_dist[0]
+            _, a_dist = self.local_network.g.run_policy(session, [s], [t], self.scene_scope)
+            a = rl.choose_action(a_dist[0])
+            return a, a_dist[0]
         trajs = []
         for _ in range(n_traj):
             trajs.append(sample_one_traj(self.config, self.env, get_act_fn_a))
@@ -87,22 +88,13 @@ class GailThread(object):
         q_B_T = q.padded(fill=np.nan)
         assert q_B_T.shape == (B, maxT)  # q values, padded with nans at the end
 
-        # Time-dependent baseline that cheats on the current batch
-        simplev_B_T = np.tile(np.nanmean(q_B_T, axis=0, keepdims=True), (B, 1))
-        assert simplev_B_T.shape == (B, maxT)
-        simplev = RaggedArray([simplev_B_T[i, :l] for i, l in enumerate(traj_lens)])
+        # estimate expected return
+        returns = np.mean(np.sum(rewards_B_T, axis=1))
 
         # State-dependent baseline (value function)
         v_stacked = self.local_network.g.run_value(session, trajs.obs.stacked, t, self.scene_scope)
         assert v_stacked.ndim == 1
         v = RaggedArray(v_stacked, lengths=traj_lens)
-
-        # Compare squared loss of value function to that of the time-dependent value function
-        constfunc_prediction_loss = np.var(q.stacked)
-        simplev_prediction_loss = np.var(q.stacked - simplev.stacked)  # ((q.stacked-simplev.stacked)**2).mean()
-        simplev_r2 = 1. - simplev_prediction_loss / (constfunc_prediction_loss + 1e-8)
-        vfunc_prediction_loss = np.var(q.stacked - v_stacked)  # ((q.stacked-v_stacked)**2).mean()
-        vfunc_r2 = 1. - vfunc_prediction_loss / (constfunc_prediction_loss + 1e-8)
 
         # Compute advantage -- GAE(gamma, lam) estimator
         v_B_T = v.padded(fill=0.)
@@ -114,7 +106,7 @@ class GailThread(object):
         assert adv_B_T.shape == (B, maxT)
         adv = RaggedArray([adv_B_T[i, :l] for i, l in enumerate(traj_lens)])
         assert np.allclose(adv.padded(fill=0), adv_B_T)
-        return adv, q, vfunc_r2, simplev_r2
+        return adv, q, returns
 
     def update_policy(self, session, trajs, adv, t):
         def damped_hvp_func(v):
@@ -220,7 +212,7 @@ class GailThread(object):
         # compute Q out of discriminator's reward function and then V out of generator.
         # then advantage = Q - V
         logging.debug("computing advantage")
-        adv, q, vfunc_r2, simplev_r2 = self.compute_advantage(session, trajs_a)
+        adv, q, returns = self.compute_advantage(session, trajs_a)
 
         # update policy network via TRPO
         obj, kl = self.update_policy(session, trajs_a, adv, t)
@@ -236,6 +228,7 @@ class GailThread(object):
             "stats/" + self.scene_scope + "-sur_obj": obj,
             "stats/" + self.scene_scope + "-loss_value": loss_v,
             "stats/" + self.scene_scope + "-loss_d": loss_d,
+            "stats/" + self.scene_scope + "-returns": returns,
             "stats/" + self.scene_scope + "-rewards_a": rewards_a,
             "stats/" + self.scene_scope + "-rewards_e": rewards_e,
         }

@@ -8,7 +8,7 @@ from utils import nn, rl
 from config import Configuration
 from imitation.discriminator import Discriminator
 
-tf.logging.set_verbosity(tf.logging.DEBUG)
+tf.logging.set_verbosity(tf.logging.INFO)
 
 
 # generator

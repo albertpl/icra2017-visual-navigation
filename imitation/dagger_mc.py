@@ -54,6 +54,7 @@ class DaggerMCThread(object):
         while not terminal:
             a_e, a_dist_e = policy_fn_e(self.env.s_t, self.env.s_target)
             a_a, a_dist_a = policy_fn_a(self.env.s_t, self.env.s_target)
+            a_a = rl.choose_action(a_dist_a)
             states.append(self.env.s_t)
             actions.append(a_e)
             a_dists.append(a_dist_e)
