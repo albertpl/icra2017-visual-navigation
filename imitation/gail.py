@@ -136,49 +136,29 @@ class GailThread(object):
             return obj_old, kl
         else:
             # compute hessian with CG
-            if True:
+            def barrier_obj(th):
+                self.local_network.g.set_vars(session, th, self.scene_scope)
+                obj, kl = self.local_network.g.run_sur_obj_kl(
+                    session,
+                    trajs.obs.stacked, t,
+                    trajs.actions.stacked, trajs.a_dists.stacked,
+                    adv.stacked,
+                    self.scene_scope
+                )
+                return np.inf if kl > 2 * self.config.policy_max_kl else -obj
+            if False:
                 hvpop = ssl.LinearOperator(shape=(theta.shape[0], theta.shape[0]), matvec=damped_hvp_func)
                 step, _ = ssl.cg(hvpop, obj_grads, maxiter=10)
-                full_step = step / np.sqrt(.5 * step.dot(damped_hvp_func(step)) / self.config.policy_max_kl)
-
-                def barrier_obj(th):
-                    self.local_network.g.set_vars(session, th, self.scene_scope)
-                    obj, kl = self.local_network.g.run_sur_obj_kl(
-                        session,
-                        trajs.obs.stacked, t,
-                        trajs.actions.stacked, trajs.a_dists.stacked,
-                        adv.stacked,
-                        self.scene_scope
-                    )
-                    return np.inf if kl > 2 * self.config.policy_max_kl else -obj
-
-                theta, num_bt_steps = rl.btlinesearch(
-                    f=barrier_obj,
-                    x0=theta,
-                    fx0=-obj_old,
-                    g=-obj_grads,
-                    dx=full_step,
-                    accept_ratio=.1, shrink_factor=.5, max_steps=10)
-
             else:
-                step_dir = rl.conjugate_gradient(damped_hvp_func, -obj_grads)
-                shs = .5 * step_dir.dot(damped_hvp_func(step_dir))
-                assert shs > 0, "%f " % shs
-
-                lm = np.sqrt(shs / self.config.policy_max_kl)
-                full_step = step_dir / lm
-                neg_gdot_step_dir = -obj_grads.dot(step_dir)
-
-                def compute_obj(th):
-                    self.local_network.g.set_vars(session, th, self.scene_scope)
-                    return self.local_network.g.run_sur_obj_kl(
-                        session,
-                        trajs.obs.stacked, t,
-                        trajs.actions.stacked, trajs.a_dists.stacked,
-                        adv.stacked,
-                        self.scene_scope
-                    )[0]
-                theta = rl.linesearch(compute_obj, theta, full_step, neg_gdot_step_dir/lm)
+                step = rl.conjugate_gradient(damped_hvp_func, obj_grads)
+            full_step = step / np.sqrt(.5 * step.dot(damped_hvp_func(step)) / self.config.policy_max_kl)
+            theta, num_bt_steps = rl.btlinesearch(
+                f=barrier_obj,
+                x0=theta,
+                fx0=-obj_old,
+                g=-obj_grads,
+                dx=full_step,
+                accept_ratio=.1, shrink_factor=.5, max_steps=10)
         self.local_network.g.set_vars(session, theta, self.scene_scope)
         obj, kl = self.local_network.g.run_sur_obj_kl(session,
                                                       trajs.obs.stacked, t,
