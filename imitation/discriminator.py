@@ -105,6 +105,8 @@ class Discriminator(object):
                     tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(logits_e[key]), logits=logits_e[key]))
                 self.losses[key] += tf.reduce_mean(
                     tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros_like(logits_a[key]), logits=logits_a[key]))
+                # self.losses[key] = tf.reduce_mean(logits_a[key]) - tf.reduce_mean(logits_e[key])
+
                 grad_hat = nn.flat_grad(logits_hat[key], self.train_vars[key])
                 tf.logging.debug("%s-grad_hat: %s", key, grad_hat)
                 grad_norm = tf.norm(grad_hat)

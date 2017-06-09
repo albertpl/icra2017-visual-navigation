@@ -11,6 +11,7 @@ class Configuration(object):
     # dropout = 0.5
     early_stopping = 999
     gamma = 0.95  # discount factor
+    gae_lam = 0.97  # GAE lambda
     gan_d_cycle = 1  # cycle of discriminator in GAIL
     gan_v_cycle = 1  # cycle of value function in GAIL
     local_t_max = LOCAL_T_MAX
@@ -19,7 +20,6 @@ class Configuration(object):
     lr_decay_step = 1000  # decay by 0.9
     lsr_epsilon = 0.1
     relu_leakiness = 0.01  # Leaky Relu
-    lam = 0.97  # GAE lambda
     max_epochs = 1   # of train per iteration
     max_global_time_step = MAX_TIME_STEP
     max_iteration = MAX_TIME_STEP  # maximum number of training
@@ -28,6 +28,7 @@ class Configuration(object):
     num_eval_episodes = NUM_EVAL_EPISODES   # number of episodes per eval
     policy_max_kl = 0.01  # maximum KL divergency for TRPO
     policy_cg_damping = 0.01  # multiple of I to mix with Hessian for HVP
+    policy_ent_reg = 0.  # weight for reward augmentation
     reg = 0.04   # regularization for weight
     steps_per_save = 1e+3
     steps_per_eval = 1e+2

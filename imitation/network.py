@@ -28,7 +28,7 @@ class Generator(object):
         self.kl, self.sur_obj, self.hvp, self.get_op, self.set_op = {}, {}, {}, {}, {}
         self.var_vs, self.fc1, self.fc2 = None, None, None
         self.obj_grad, self.kl_grad, self.fc3, self.logits = {}, {}, {}, {}
-        self.loss_v, self.loss_p, self.train_v, self.train_p = {}, {}, {}, {}
+        self.loss_v, self.loss_p, self.train_v, self.train_p, self.log_p = {}, {}, {}, {}, {}
         with tf.variable_scope(network_scope):
             self.global_step = tf.Variable(0, dtype=tf.int32, trainable=False, name='global_step')
             self.s = tf.placeholder(tf.float32, [None, 2048, 4], name='observation')
@@ -110,8 +110,10 @@ class Generator(object):
                                           tf.stack((tf.range(self.n), self.a_old), axis=1), name='pi_old')
                     # surrogate objective
                     epsilon = 1e-8
+                    # minimize obj, i.e. loss
+                    self.log_p[key] = tf.log(pi+epsilon)
                     self.sur_obj[key] = tf.reduce_mean(
-                        tf.exp(tf.log(pi+epsilon) - tf.log(pi_old+epsilon)) * self.adv, name='sur_obj')
+                        tf.exp(self.log_p[key] - tf.log(pi_old+epsilon)) * self.adv, name='sur_obj')
                     tf.logging.debug("%s-sur_obj: shape %s", key, self.sur_obj[key].get_shape())
                     self.obj_grad[key] = nn.flat_grad(self.sur_obj[key], var_list)
                     # KL divergence
@@ -254,6 +256,17 @@ class Generator(object):
         })
         return
 
+    def run_ent(self, session, state, target, action, scene_scope):
+        assert len(state) == len(target)
+        key = rl.get_key([self.network_scope, scene_scope])
+        ent = session.run(self.log_p[key], feed_dict={
+            self.s: state,
+            self.t: target,
+            self.a_old: action,
+            self.n: len(state),
+        })
+        return ent
+
 
 class Network(object):
     """
@@ -324,6 +337,9 @@ def test_policy_trpo(session, model, config, scene_scope, summary_writer):
     vector = np.random.rand(*var_vs.shape)
     hvp = model.g.run_hvp(session, s_a, t_a, a, a_dist, vector, scene_scope)
     assert hvp.shape == vector.shape
+    ent = model.g.run_ent(session, s_a, t_a, a, scene_scope)
+    print(ent)
+    assert all(ent >= 0)
 
 
 def test_value_net(session, model, config, scene_scope, summary_writer):
@@ -366,7 +382,7 @@ def test_model():
 
     sess_config = tf.ConfigProto(log_device_placement=False,
                                  allow_soft_placement=True)
-    for test_fn in (test_policy_supervised, test_policy_trpo, test_discriminator, test_value_net):
+    for test_fn in (test_policy_trpo, test_discriminator, test_value_net, test_policy_supervised):
         with tf.Session(config=sess_config) as session:
             summary_writer = tf.summary.FileWriter(train_logdir, session.graph)
             session.run(tf.global_variables_initializer())

@@ -73,6 +73,11 @@ class GailThread(object):
         rewards_stack = self.local_network.d.run_reward(session, self.scene_scope,
                                                         trajs.obs.stacked, t, trajs.actions.stacked)
         assert rewards_stack.shape == (trajs.obs.stacked.shape[0],)
+        if self.config.policy_ent_reg > 0:
+            # add casual entropy as reward augmentation
+            ent = self.local_network.g.run_ent(session, trajs.obs.stacked, t, trajs.actions.stacked, self.scene_scope)
+            rewards_stack += self.config.policy_ent_reg * ent
+
         # convert back to jagged array
         r = RaggedArray(rewards_stack, lengths=trajs.r.lengths)
         B, maxT = len(traj_lens), traj_lens.max()
@@ -105,7 +110,7 @@ class GailThread(object):
         v_B_Tp1 = np.concatenate([v_B_T, np.zeros((B, 1))], axis=1)
         assert v_B_Tp1.shape == (B, maxT + 1)
         delta_B_T = rewards_B_T + self.config.gamma * v_B_Tp1[:, 1:] - v_B_Tp1[:, :-1]
-        adv_B_T = rl.discount(delta_B_T, self.config.gamma * self.config.lam)
+        adv_B_T = rl.discount(delta_B_T, self.config.gamma * self.config.gae_lam)
         assert adv_B_T.shape == (B, maxT)
         adv = RaggedArray([adv_B_T[i, :l] for i, l in enumerate(traj_lens)])
         assert np.allclose(adv.padded(fill=0), adv_B_T)
@@ -132,7 +137,6 @@ class GailThread(object):
         if obj_grad_norm < 1e-6:
             adv_norm = np.abs(adv.stacked).max()
             logging.info("adv norm =%.2f obj_grad norm=%.2f" % (adv_norm, obj_grad_norm))
-            theta += obj_grads
             return obj_old, kl
         else:
             # compute hessian with CG

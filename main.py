@@ -131,13 +131,12 @@ def train():
 def search():
     config_dict = vars(args)
     for _ in range(args.max_attempt):
-        # config_dict['lr'] = 10 ** np.random.uniform(-7, -5)
-        # config_dict['lr_vn'] = 10 ** np.random.uniform(-4, -1)
-        config_dict['lr'] = np.random.uniform(1.5e-7, 2.5e-7)
-        config_dict['lr_vn'] = np.random.uniform(5.0e-3, 9.0e-3)
-        config_dict['policy_max_kl'] = np.random.uniform(1.5e-3, 2.5e-3)
-        config_dict['gan_v_cycle'] = np.random.choice([1])
-        config_dict['lsr_epsilon'] = np.random.uniform(1e-2, 2e-2)
+        # config_dict['lr'] = 10 ** np.random.uniform(-8, -7)
+        # config_dict['lr_vn'] = 10 ** np.random.uniform(-3, -1)
+        config_dict['lr'] = np.random.uniform(1.0e-7, 2.0e-7)
+        config_dict['lr_vn'] = np.random.uniform(5.0e-3, 6.0e-3)
+        config_dict['policy_max_kl'] = np.random.uniform(2e-3, 3e-3)
+        config_dict['lsr_epsilon'] = np.random.uniform(0.0, 0.05)
 
         train_models([config_dict])
 
