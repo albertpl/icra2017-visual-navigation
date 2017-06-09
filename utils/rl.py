@@ -67,6 +67,38 @@ def compute_qvals(r, gamma):
     return RaggedArray([qvals_zfilled_B_T[i,:l] for i, l in enumerate(trajlengths)]), rewards_B_T
 
 
+def btlinesearch(f, x0, fx0, g, dx, accept_ratio, shrink_factor, max_steps, verbose=False):
+    """
+    Find a step size t such that f(x0 + t*dx) is within a factor
+    accept_ratio of the linearized function value improvement.
+
+    Args:
+        f: the function
+        x0: starting point for search
+        fx0: the value f(x0). Will be computed if set to None.
+        g: search direction, typically the gradient of f at x0
+        dx: the largest possible step to take
+        accept_ratio: termination criterion
+        shrink_factor: how much to decrease the step every iteration
+    """
+    if fx0 is None:
+        fx0 = f(x0)
+    t = 1.
+    m = g.dot(dx)
+    if accept_ratio != 0 and m > 0:
+        logging.warning('WARNING: %.10f not <= 0' % m)
+    num_steps = 0
+    while num_steps < max_steps:
+        true_imp = f(x0 + t*dx) - fx0
+        lin_imp = t*m
+        logging.debug("true_imp=%(true_imp)f, lin_imp=%(lin_imp)f, ratio=%(accept_ratio)f" % locals())
+        if true_imp <= accept_ratio * lin_imp:
+            break
+        t *= shrink_factor
+        num_steps += 1
+    return x0 + t*dx, num_steps
+
+
 def linesearch(f, x, fullstep, expected_improve_rate):
     accept_ratio = .1
     max_backtracks = 10
