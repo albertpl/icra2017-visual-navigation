@@ -215,7 +215,8 @@ class GailThread(object):
         adv, q, returns = self.compute_advantage(session, trajs_a)
 
         # update policy network via TRPO
-        obj, kl = self.update_policy(session, trajs_a, adv, t)
+        for _ in range(self.config.gan_p_cycle):
+            obj, kl = self.update_policy(session, trajs_a, adv, t)
 
         # update value network via MSE
         v_cycle = self.config.gan_v_cycle

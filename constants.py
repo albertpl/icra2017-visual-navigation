@@ -39,5 +39,6 @@ else:
     # TASK_LIST = {'bathroom_02': ['26']}
     # TASK_LIST = {'living_room_08': ['92']}
     TASK_LIST = {
-        'kitchen_02'     : ['90', '136', '157', '207', '329'],
+        #'kitchen_02'     : ['90', '136', '157', '207', '329'],
+        'kitchen_02'     : ['90'],
     }

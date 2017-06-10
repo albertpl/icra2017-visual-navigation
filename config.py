@@ -14,6 +14,7 @@ class Configuration(object):
     gae_lam = 0.97  # GAE lambda
     gan_d_cycle = 1  # cycle of discriminator in GAIL
     gan_v_cycle = 1  # cycle of value function in GAIL
+    gan_p_cycle = 1  # cycle of policy function in GAIL
     local_t_max = LOCAL_T_MAX
     lr = 4.0e-4
     lr_vn = 1.0e-5   # lr for value network

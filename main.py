@@ -41,7 +41,7 @@ def create_threads(config, model, network_scope, list_of_tasks):
 
 def get_logdir_str(config):
     keys = ('min_traj_per_train', 'max_iteration', 'policy_max_kl', 'lr', 'lr_vn', 'gan_d_cycle',
-            'gan_v_cycle', 'lsr_epsilon')
+            'gan_v_cycle', 'lsr_epsilon', 'policy_ent_reg')
     return '-'.join([p+'_'+str(getattr(config, p)) for p in keys if hasattr(config, p)])
 
 
@@ -130,17 +130,20 @@ def train():
 
 def search():
     config_dict = vars(args)
+    # max_iteration = int(args.max_iteration)
     for _ in range(args.max_attempt):
         # config_dict['lr'] = 10 ** np.random.uniform(-7, -5)
-        # config_dict['lr_vn'] = 10 ** np.random.uniform(-4, -1)
-        config_dict['lr'] = np.random.uniform(1.5e-7, 2.5e-7)
-        config_dict['lr_vn'] = np.random.uniform(5.0e-3, 9.0e-3)
-        config_dict['policy_max_kl'] = np.random.uniform(1.5e-3, 2.5e-3)
-        config_dict['gan_v_cycle'] = np.random.choice([1])
-        # config_dict['lsr_epsilon'] = np.random.uniform(1e-2, 2e-2)
-        config_dict['policy_ent_reg'] = 0  # 1e-3
-
+        # config_dict['lr_vn'] = 10 ** np.random.uniform(-5, -3)
+        config_dict['lr'] = np.random.uniform(1.2e-6, 1.3e-6)
+        config_dict['lr_vn'] = np.random.uniform(2.4e-3, 2.5e-3)
+        config_dict['policy_max_kl'] = np.random.uniform(1.0e-3, 1.0e-3)
+        config_dict['lsr_epsilon'] = np.random.uniform(1e-1, 1e-1)
+        config_dict['policy_ent_reg'] = np.random.choice([1e-3])
+        config_dict['min_traj_per_train'] = np.random.choice([5, 20, 50])
+        # config_dict['max_iteration'] = int(config_dict['max_iteration'])*int(20.0/config_dict['min_traj_per_train'])
+        t0 = time.time()
         train_models([config_dict])
+        logging.info("training takes %.2f seconds" % (time.time() - t0))
 
 
 def evaluate_model(session, config, model, summary_writer=None, global_step=0):
