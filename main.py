@@ -76,6 +76,7 @@ def train_model(model, session, config, threads, logdir, weight_root):
     train_start = time.time()
     lr_config = config.lr
     iteration = 0
+    logging.info("total_threads=%d" % len(threads))
     while global_t < config.max_global_time_step and iteration < config.max_iteration:
         for thread in threads:
             if load_weights:
@@ -137,9 +138,10 @@ def search():
         config_dict['lr'] = np.random.uniform(1.2e-6, 1.3e-6)
         config_dict['lr_vn'] = np.random.uniform(2.4e-3, 2.5e-3)
         config_dict['policy_max_kl'] = np.random.uniform(1.0e-3, 1.0e-3)
+        config_dict['wgan_lam'] = 10 ** np.random.uniform(-5, 0)
         config_dict['lsr_epsilon'] = np.random.uniform(1e-1, 1e-1)
         config_dict['policy_ent_reg'] = np.random.choice([1e-3])
-        config_dict['min_traj_per_train'] = np.random.choice([5, 20, 50])
+        config_dict['min_traj_per_train'] = np.random.choice([5])
         # config_dict['max_iteration'] = int(config_dict['max_iteration'])*int(20.0/config_dict['min_traj_per_train'])
         t0 = time.time()
         train_models([config_dict])

@@ -101,18 +101,20 @@ class Discriminator(object):
         for scene_scope in self.scene_scopes:
             key = rl.get_key([self.network_scope, scene_scope])
             with tf.name_scope('loss_d/' + scene_scope):
-                # self.losses[key] = tf.reduce_mean(
-                #    tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(logits_e[key]) * 0.9,
-                #                                            logits=logits_e[key]))
-                #self.losses[key] += tf.reduce_mean(
-                #    tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros_like(logits_a[key]), logits=logits_a[key]))
-                self.losses[key] = tf.reduce_mean(logits_a[key]) - tf.reduce_mean(logits_e[key])
-
-                grad_hat = nn.flat_grad(logits_hat[key], self.train_vars[key])
-                tf.logging.debug("%s-grad_hat: %s", key, grad_hat)
-                grad_norm = tf.norm(grad_hat)
-                grad_pen = tf.reduce_mean((grad_norm-1)**2)
-                self.losses[key] += self.config.wgan_lam * grad_pen
+                if False:
+                    self.losses[key] = tf.reduce_mean(
+                        tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(logits_e[key]) * 0.9,
+                                                                logits=logits_e[key]))
+                    self.losses[key] += tf.reduce_mean(
+                        tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros_like(logits_a[key]), logits=logits_a[key]))
+                else:
+                    # WGAN-GP
+                    self.losses[key] = tf.reduce_mean(logits_a[key]) - tf.reduce_mean(logits_e[key])
+                    grad_hat = nn.flat_grad(logits_hat[key], self.train_vars[key])
+                    tf.logging.debug("%s-grad_hat: %s", key, grad_hat)
+                    grad_norm = tf.norm(grad_hat)
+                    grad_pen = tf.reduce_mean((grad_norm-1)**2)
+                    self.losses[key] += self.config.wgan_lam * grad_pen
                 self.summaries[key] = tf.summary.scalar("loss", self.losses[key])
             with tf.name_scope('optimizer_d/' + scene_scope):
                 optimizer = tf.train.AdamOptimizer(learning_rate=self.lr, name='adam')
