@@ -18,7 +18,7 @@ from constants import VERBOSE
 
 from constants import TASK_TYPE
 from constants import TASK_LIST
-
+from config import Configuration
 if __name__ == '__main__':
 
   device = "/cpu:0" # use CPU for display tool
@@ -45,6 +45,7 @@ if __name__ == '__main__':
     print("Could not find old checkpoint")
 
   scene_stats = dict()
+  config = Configuration()
   for scene_scope in scene_scopes:
 
     scene_stats[scene_scope] = []
@@ -54,6 +55,15 @@ if __name__ == '__main__':
         'scene_name': scene_scope,
         'terminal_state_id': int(task_scope)
       })
+
+      if True:
+          # randomrize target
+          new_target = random.randrange(env.n_locations)
+          print("current target = %(task_scope)s new target = %(new_target)d" % locals())
+          env = Environment({
+            'scene_name': scene_scope,
+            'terminal_state_id': int(new_target)
+          })
       ep_rewards = []
       ep_lengths = []
       ep_collisions = []
@@ -76,7 +86,7 @@ if __name__ == '__main__':
           env.update()
 
           terminal = env.terminal
-          if ep_t == 10000: break
+          if ep_t == config.max_steps_per_e: break
           if env.collided: ep_collision += 1
           ep_reward += env.reward
           ep_t += 1

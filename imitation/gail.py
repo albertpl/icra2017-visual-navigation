@@ -27,7 +27,8 @@ class GailThread(object):
                  thread_index,
                  network_scope="network",
                  scene_scope="scene",
-                 task_scope="task"):
+                 task_scope="task",
+                 random_target=False):
         self.thread_index = thread_index
         self.config = config
         self.network_scope = network_scope

@@ -36,11 +36,12 @@ def change_target(scene_scope, target_cur, deviate_step):
         env.step(a)
         env.update()
     target = env.current_state_id
-    logging.info("changing target from %(target_cur)d to %(target)d" % locals())
+    logging.debug("%s total targets=%d" % (scene_scope, env.n_locations))
+    logging.debug("%(scene_scope)s changing target from %(target_cur)d to %(target)d" % locals())
     return target
 
 
-def create_threads(config, model, network_scope, list_of_tasks, deviate_step=0):
+def create_threads(config, model, network_scope, list_of_tasks, deviate_step=0, random_target=False):
     scene_scopes = list_of_tasks.keys()
     branches = [(scene, task) for scene in scene_scopes for task in list_of_tasks[scene]]
     if args.model == 'dagger':
@@ -58,7 +59,11 @@ def create_threads(config, model, network_scope, list_of_tasks, deviate_step=0):
     for i, (scene_scope, task) in enumerate(branches):
         if deviate_step:
             task = str(change_target(scene_scope, int(task), deviate_step))
-        threads.append(thread(config, model, i, network_scope=network_scope, scene_scope=scene_scope, task_scope=task))
+        threads.append(thread(config, model, i,
+                              network_scope=network_scope,
+                              scene_scope=scene_scope,
+                              task_scope=task,
+                              random_target=random_target))
     return threads
 
 
@@ -174,7 +179,7 @@ def search():
 def evaluate_model(session, config, model, summary_writer=None, global_step=0):
     network_scope = TASK_TYPE
     list_of_tasks = TASK_LIST
-    threads = create_threads(config, model, network_scope, list_of_tasks, args.deviate_step)
+    threads = create_threads(config, model, network_scope, list_of_tasks, args.deviate_step, args.random_target)
 
     scene_stats = defaultdict(list)
     expert_stats = defaultdict(list)
@@ -249,6 +254,7 @@ if __name__ == '__main__':
     parser.add_argument('--max_attempt', dest='max_attempt', type=int, default=1,
                         help='search hyper parameters')
     parser.add_argument('--deviate_step', dest='deviate_step', default=0, type=int)
+    parser.add_argument('--random_target', dest='random_target', default=False, action='store_true')
     parser.add_argument('--logdir', dest='logdir', default='./logdir', help='logdir')
     parser.add_argument('--weight_root', dest='weight_root', default=None, help='weights')
     parser.add_argument('--not_save_last', dest='not_save_last', default=False, action='store_true',

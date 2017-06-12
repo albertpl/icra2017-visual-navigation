@@ -26,3 +26,8 @@ def sample_one_traj(config, env, policy_fn):
     return Trajectory(np.array(states), np.array(a_dists), np.array(actions), np.array(rewards))
 
 
+def sample_target(env):
+    import random
+    return random.randrange(env.n_locations)
+
+

@@ -13,7 +13,7 @@ from expert import Expert
 from config import Configuration
 from imitation.discriminator import Discriminator
 from imitation.network import Generator, Network
-from imitation.sample import sample_one_traj
+from imitation.sample import sample_one_traj, sample_target
 from utils.trajectory import *
 from utils import rl, nn
 
@@ -25,7 +25,8 @@ class BCThread(object):
                  thread_index,
                  network_scope="network",
                  scene_scope="scene",
-                 task_scope="task"):
+                 task_scope="task",
+                 random_target=False):
         self.thread_index = thread_index
         self.config = config
         self.network_scope = network_scope
@@ -35,6 +36,13 @@ class BCThread(object):
         self.env = Environment({
                 'scene_name': self.scene_scope,
                 'terminal_state_id': int(self.task_scope)
+            })
+        if random_target:
+            new_target = sample_target(self.env)
+            logging.info("new_target=%(new_target)d" % locals())
+            self.env = Environment({
+                'scene_name': self.scene_scope,
+                'terminal_state_id': new_target,
             })
         self.env.reset()
         self.expert = Expert(self.env)
