@@ -164,7 +164,7 @@ def search():
         config_dict['wgan_lam'] = 10 ** np.random.uniform(-5, 0)
         config_dict['lsr_epsilon'] = np.random.uniform(1e-1, 1e-1)
         config_dict['policy_ent_reg'] = np.random.choice([1e-3])
-        config_dict['min_traj_per_train'] = np.random.choice([1])
+        config_dict['min_traj_per_train'] = np.random.choice([10])
         # config_dict['max_iteration'] = int(config_dict['max_iteration'])*int(20.0/config_dict['min_traj_per_train'])
         t0 = time.time()
         train_models([config_dict])
@@ -248,6 +248,7 @@ if __name__ == '__main__':
                         choices=('bc', 'gail', 'dagger', 'dagger_mc'))
     parser.add_argument('--max_attempt', dest='max_attempt', type=int, default=1,
                         help='search hyper parameters')
+    parser.add_argument('--deviate_step', dest='deviate_step', default=0, type=int)
     parser.add_argument('--logdir', dest='logdir', default='./logdir', help='logdir')
     parser.add_argument('--weight_root', dest='weight_root', default=None, help='weights')
     parser.add_argument('--not_save_last', dest='not_save_last', default=False, action='store_true',
@@ -261,7 +262,6 @@ if __name__ == '__main__':
 
     # eval
     parser_eval = subparser.add_parser('eval', help='evaluate')
-    parser_eval.add_argument('--deviate_step', dest='deviate_step', default=0, type=int)
     parser_eval.set_defaults(func=evaluate)
 
     # search
