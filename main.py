@@ -21,8 +21,26 @@ from imitation.bc import BCThread
 from imitation.dagger_mc import DaggerMCThread
 from utils import nn
 
+from scene_loader import THORDiscreteEnvironment as Environment
+from expert import Expert
 
-def create_threads(config, model, network_scope, list_of_tasks):
+
+def change_target(scene_scope, target_cur, deviate_step):
+    env = Environment({
+        'scene_name': scene_scope,
+    })
+    env.current_state_id = target_cur
+    expert = Expert(env)
+    for _ in range(deviate_step):
+        a = expert.get_next_action()
+        env.step(a)
+        env.update()
+    target = env.current_state_id
+    logging.info("changing target from %(target_cur)d to %(target)d" % locals())
+    return target
+
+
+def create_threads(config, model, network_scope, list_of_tasks, deviate_step=0):
     scene_scopes = list_of_tasks.keys()
     branches = [(scene, task) for scene in scene_scopes for task in list_of_tasks[scene]]
     if args.model == 'dagger':
@@ -35,8 +53,13 @@ def create_threads(config, model, network_scope, list_of_tasks):
         thread = DaggerMCThread
     else:
         raise ValueError("model not supported")
-    return [thread(config, model, i, network_scope=network_scope, scene_scope=scene_scope, task_scope=task)
-            for i, (scene_scope, task) in enumerate(branches)]
+
+    threads = []
+    for i, (scene_scope, task) in enumerate(branches):
+        if deviate_step:
+            task = str(change_target(scene_scope, int(task), deviate_step))
+        threads.append(thread(config, model, i, network_scope=network_scope, scene_scope=scene_scope, task_scope=task))
+    return threads
 
 
 def get_logdir_str(config):
@@ -133,15 +156,15 @@ def search():
     config_dict = vars(args)
     # max_iteration = int(args.max_iteration)
     for _ in range(args.max_attempt):
-        # config_dict['lr'] = 10 ** np.random.uniform(-7, -5)
+        config_dict['lr'] = 10 ** np.random.uniform(-6, -3)
+        # config_dict['lr'] = np.random.uniform(1.0e-5, 1.0e-4)
         # config_dict['lr_vn'] = 10 ** np.random.uniform(-5, -3)
-        config_dict['lr'] = np.random.uniform(1.2e-6, 1.3e-6)
         config_dict['lr_vn'] = np.random.uniform(2.4e-3, 2.5e-3)
         config_dict['policy_max_kl'] = np.random.uniform(1.0e-3, 1.0e-3)
         config_dict['wgan_lam'] = 10 ** np.random.uniform(-5, 0)
         config_dict['lsr_epsilon'] = np.random.uniform(1e-1, 1e-1)
         config_dict['policy_ent_reg'] = np.random.choice([1e-3])
-        config_dict['min_traj_per_train'] = np.random.choice([5])
+        config_dict['min_traj_per_train'] = np.random.choice([1])
         # config_dict['max_iteration'] = int(config_dict['max_iteration'])*int(20.0/config_dict['min_traj_per_train'])
         t0 = time.time()
         train_models([config_dict])
@@ -151,7 +174,7 @@ def search():
 def evaluate_model(session, config, model, summary_writer=None, global_step=0):
     network_scope = TASK_TYPE
     list_of_tasks = TASK_LIST
-    threads = create_threads(config, model, network_scope, list_of_tasks)
+    threads = create_threads(config, model, network_scope, list_of_tasks, args.deviate_step)
 
     scene_stats = defaultdict(list)
     expert_stats = defaultdict(list)
@@ -172,6 +195,7 @@ def evaluate_model(session, config, model, summary_writer=None, global_step=0):
         expert_stats[scene].append(exp_lengths)
         acc_stats[scene].append(accuracies)
     logging.info("Average_trajectory_length per scene @%d (steps):" % global_step)
+    #  defined as traj length < 500
     for scene in scene_stats:
         logging.info("%s: agent=%f (acc=%.2f) expert=%f" %
                      (scene,
@@ -185,6 +209,9 @@ def evaluate_model(session, config, model, summary_writer=None, global_step=0):
                 "stats/" + scene + "-accuracy_eval": float(np.mean(acc_stats[scene])),
             }
             nn.add_summary(summary_writer, summary_values, global_step=global_step)
+    if args.deviate_step:
+        success_rate = np.mean((lengths<500).astype(float))
+        logging.info("success rate is %(success_rate).3f" % locals())
 
 
 def evaluate():
@@ -234,6 +261,7 @@ if __name__ == '__main__':
 
     # eval
     parser_eval = subparser.add_parser('eval', help='evaluate')
+    parser_eval.add_argument('--deviate_step', dest='deviate_step', default=0, type=int)
     parser_eval.set_defaults(func=evaluate)
 
     # search

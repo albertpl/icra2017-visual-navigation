@@ -25,7 +25,7 @@ class Configuration(object):
     max_global_time_step = MAX_TIME_STEP
     max_iteration = MAX_TIME_STEP  # maximum number of training
     max_steps_per_e = 5e3  # maximum steps per episode
-    min_traj_per_train = 2
+    min_traj_per_train = 1
     num_eval_episodes = NUM_EVAL_EPISODES   # number of episodes per eval
     policy_max_kl = 0.01  # maximum KL divergency for TRPO
     policy_cg_damping = 0.01  # multiple of I to mix with Hessian for HVP

@@ -94,7 +94,7 @@ class BCThread(object):
     def evaluate(self, session, n_episodes):
         trajs_a, trajs_e = self.sample_trajs_a(session, n_episodes), \
                            self.sample_trajs_e(session, n_episodes)
-        step_a, step_e = float(np.mean(trajs_a.obs.lengths)), float(np.mean(trajs_e.obs.lengths))
+        step_a, step_e = trajs_a.obs.lengths, trajs_e.obs.lengths
         n_total_e = len(trajs_e.obs.stacked)
         t = [self.env.s_target] * n_total_e
         acc, _ = self.local_network.g.eval_policy(
