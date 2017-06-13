@@ -39,7 +39,7 @@ class BCThread(object):
             })
         if random_target:
             new_target = sample_target(self.env)
-            logging.info("new_target=%(new_target)d" % locals())
+            logging.info("random new_target=%(new_target)d" % locals())
             self.env = Environment({
                 'scene_name': self.scene_scope,
                 'terminal_state_id': new_target,

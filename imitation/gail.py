@@ -39,6 +39,13 @@ class GailThread(object):
                 'scene_name': self.scene_scope,
                 'terminal_state_id': int(self.task_scope)
             })
+        if random_target:
+            new_target = sample_target(self.env)
+            logging.info("new_target=%(new_target)d" % locals())
+            self.env = Environment({
+                'scene_name': self.scene_scope,
+                'terminal_state_id': new_target,
+            })
         self.env.reset()
         self.expert = Expert(self.env)
         self.local_t = 0

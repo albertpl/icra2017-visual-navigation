@@ -25,14 +25,17 @@ from scene_loader import THORDiscreteEnvironment as Environment
 from expert import Expert
 
 
-def change_target(scene_scope, target_cur, deviate_step):
+def change_target(config, scene_scope, target_cur, deviate_step):
     env = Environment({
         'scene_name': scene_scope,
     })
     env.current_state_id = target_cur
     expert = Expert(env)
     for _ in range(deviate_step):
-        a = expert.get_next_action()
+        while True:
+            a = np.random.choice(list(range(config.action_size)))
+            if env.transition_graph[env.current_state_id][a] != -1:
+                break
         env.step(a)
         env.update()
     target = env.current_state_id
@@ -58,7 +61,7 @@ def create_threads(config, model, network_scope, list_of_tasks, deviate_step=0, 
     threads = []
     for i, (scene_scope, task) in enumerate(branches):
         if deviate_step:
-            task = str(change_target(scene_scope, int(task), deviate_step))
+            task = str(change_target(config, scene_scope, int(task), deviate_step))
         threads.append(thread(config, model, i,
                               network_scope=network_scope,
                               scene_scope=scene_scope,
@@ -184,21 +187,27 @@ def evaluate_model(session, config, model, summary_writer=None, global_step=0):
     scene_stats = defaultdict(list)
     expert_stats = defaultdict(list)
     acc_stats = defaultdict(list)
+    all_lengths = []
     for thread in threads:
         scene = thread.scene_scope
         task = thread.task_scope
         logging.debug("evaluating " + scene + "/" + task)
         lengths, accuracies, exp_lengths, collisions, exp_collisions = \
             thread.evaluate(session, config.num_eval_episodes)
-        logging.debug("Agent %s: mean_episode_length=%f/%f mean_episode_collision=%f/%f accuracies=%f" %
+        success_rate = float(np.mean((lengths<500).astype(float)))
+        logging.debug("Agent %s: mean_episode_length=%f/%f mean_episode_collision=%f/%f accuracies=%f success_rate=%.3f"%
                       (scene+'/'+task, float(np.mean(lengths)),
                        float(np.mean(exp_lengths)),
                        float(np.mean(collisions)),
                        float(np.mean(exp_collisions)),
-                       float(np.mean(accuracies))))
+                       float(np.mean(accuracies)),
+                       success_rate
+                       ))
         scene_stats[scene].append(lengths)
         expert_stats[scene].append(exp_lengths)
         acc_stats[scene].append(accuracies)
+        all_lengths.append(lengths)
+
     logging.info("Average_trajectory_length per scene @%d (steps):" % global_step)
     #  defined as traj length < 500
     for scene in scene_stats:
@@ -215,9 +224,9 @@ def evaluate_model(session, config, model, summary_writer=None, global_step=0):
             }
             nn.add_summary(summary_writer, summary_values, global_step=global_step)
     if args.deviate_step:
-        success_rate = np.mean((lengths<500).astype(float))
+        all_lengths = np.concatenate(all_lengths, axis=0)
+        success_rate = np.mean((all_lengths<500).astype(float))
         logging.info("success rate is %(success_rate).3f" % locals())
-
 
 def evaluate():
     device = "/gpu:0" if USE_GPU else "/cpu:0"
